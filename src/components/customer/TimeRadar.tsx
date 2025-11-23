@@ -1,0 +1,365 @@
+import {
+    Legend,
+    PolarAngleAxis,
+    PolarGrid,
+    PolarRadiusAxis,
+    Radar,
+    RadarChart,
+    ResponsiveContainer,
+} from "recharts";
+
+type AxisKeyTime = "合計タイム" | "オフ／フィル" | "ケア" | "ベース" | "カラー" | "トップ";
+
+type TimeRadarProps = {
+    avgData?: Record<string, any>;
+    nationalFallback: number;
+    previousTotal: number;
+    currentTotal: number;
+    averageDetailData?: Record<string, any>;
+    previousDetailData?: Record<string, any>;
+    currentDetailData?: Record<string, any>;
+};
+
+const axes: AxisKeyTime[] = ["合計タイム", "オフ／フィル", "ケア", "ベース", "カラー", "トップ"];
+
+// Fixed maximum values for each axis (in seconds)
+const FIXED_MAX_BY_AXIS: Record<AxisKeyTime, number> = {
+    "合計タイム": 80 * 60,      // 80分 = 4800秒
+    "オフ／フィル": 17 * 60,     // 17分 = 1020秒
+    "ケア": 22 * 60,             // 22分 = 1320秒
+    "ベース": 13 * 60,           // 13分 = 780秒
+    "カラー": 19 * 60,           // 19分 = 1140秒
+    "トップ": 9 * 60,            // 9分 = 540秒
+};
+
+const legendItems = [
+    { label: "全国平均", color: "#64CBD3" },
+    { label: "前回", color: "#4075B5" },
+    { label: "今回", color: "#F15C4B" },
+];
+
+const formatSecondsToTime = (totalSeconds: number | undefined | null): string => {
+    if (typeof totalSeconds !== "number" || !isFinite(totalSeconds)) return "—";
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = Math.round(totalSeconds % 60);
+    return `${minutes}分${seconds.toString().padStart(2, '0')}秒`;
+};
+
+const fmt1 = (n: number | undefined | null) => {
+    if (n === null || n === undefined) return "—";
+    if (typeof n === "number" && isFinite(n)) {
+        return formatSecondsToTime(n);
+    }
+    return "—";
+};
+
+const formatScore = (n: number | undefined | null) => formatSecondsToTime(n);
+
+const normalize = (value: number, max: number) => {
+    if (!max) return 0;
+    const ratio = (value / max) * 100;
+    return Math.max(0, Math.min(100, ratio));
+};
+
+const labelPos = (axis: AxisKeyTime, cx: number, cy: number) => {
+    if (axis === "合計タイム") return { x: cx, y: cy - 12, anchor: "middle" as const };
+    if (axis === "オフ／フィル") return { x: cx + 10, y: cy + 4, anchor: "start" as const };
+    if (axis === "ケア") return { x: cx + 10, y: cy + 16, anchor: "start" as const };
+    if (axis === "ベース") return { x: cx, y: cy + 18, anchor: "middle" as const };
+    if (axis === "カラー") return { x: cx - 10, y: cy + 18, anchor: "end" as const };
+    if (axis === "トップ") return { x: cx - 10, y: cy + 4, anchor: "end" as const };
+    return { x: cx, y: cy - 10, anchor: "middle" as const };
+};
+
+const Dot =
+    (color: string, keyName: "nationalRaw" | "previousRaw" | "currentRaw") =>
+        (props: any) => {
+            const { cx, cy, payload } = props;
+            if (typeof cx !== "number" || typeof cy !== "number") return null;
+            const raw = payload?.[keyName];
+            const axis = payload?.axis as AxisKeyTime;
+
+            // Debug log
+            if (axis === "合計タイム") {
+                console.log(`Dot [${keyName}] at ${axis}:`, raw, "seconds =", fmt1(raw));
+            }
+
+            const { x, y, anchor } = labelPos(axis, cx, cy);
+            const displayText = fmt1(raw);
+
+            return (
+                <g>
+                    <circle cx={cx} cy={cy} r={4.5} fill={color} stroke="#ffffff" strokeWidth={1.8} />
+                    <text x={x} y={y} textAnchor={anchor} fontSize={12} fontWeight={600} fill={color === "#64CBD3" ? "#2a8090" : color}>
+                        {displayText}
+                    </text>
+                </g>
+            );
+        };
+
+const NationalDot = Dot("#64CBD3", "nationalRaw");
+const PreviousDot = Dot("#4075B5", "previousRaw");
+const CurrentDot = Dot("#F15C4B", "currentRaw");
+
+const pickAverageTimeScore = (avgData?: Record<string, any>, fallback = 0) => {
+    if (avgData && typeof avgData === "object") {
+        for (const [k, v] of Object.entries(avgData)) {
+            if (k.includes("タイム") && k.includes("スコア")) {
+                const n = Number(v);
+                if (Number.isFinite(n) && n > 0) return n;
+            }
+        }
+    }
+    return fallback;
+};
+
+const normalizeKey = (input: string): string =>
+    String(input ?? "")
+        .replace(/[０-９Ａ-Ｚａ-ｚ]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0))
+        .replace(/[‐‑–—−ーｰ－]/g, "-")
+        .replace(/[\/()\[\]{}＜＞〈〉【】『』「」.,、\s\u3000]/g, "")
+        .replace(/ワンカラー/g, "ワンカラ")
+        .replace(/カラー/g, "カラ")
+        .toLowerCase();
+
+const sanitizeTime = (value: string): string =>
+    value
+        .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0))
+        .replace(/ /g, "")
+        .replace(/[:：]/g, ":")
+        .replace(/\s+/g, "");
+
+const parseNumericValue = (value: any): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+        const match = value.match(/-?\d+(?:\.\d+)?/);
+        if (match) {
+            const n = Number(match[0]);
+            if (Number.isFinite(n)) return n;
+        }
+    }
+    return null;
+};
+
+const parseTimeToSeconds = (value: any): number => {
+    if (typeof value === "number") return value;
+    if (!value) return 0;
+    const str = String(value)
+        .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0))
+        .replace(/\s+/g, "");
+    const minMatch = str.match(/(\d+)分/);
+    const secMatch = str.match(/(\d+)秒/);
+    const minutes = minMatch ? parseInt(minMatch[1], 10) : 0;
+    const seconds = secMatch ? parseInt(secMatch[1], 10) : 0;
+    return minutes * 60 + seconds;
+};
+
+const combineTimeFragments = (entries: Array<{ key: string; value: any }>): number => {
+    let minutes: number | null = null;
+    let seconds: number | null = null;
+    let fallbackTime = 0;
+
+    for (const { key, value } of entries) {
+        if (value === null || value === undefined) continue;
+        const str = String(value).trim();
+        if (!str) continue;
+
+        const normalized = sanitizeTime(str);
+        if (normalized.includes("分") && normalized.includes("秒")) {
+            fallbackTime = parseTimeToSeconds(normalized);
+        }
+
+        const num = parseNumericValue(value);
+        if (minutes === null && (/分/.test(key) || /minute/i.test(key))) {
+            if (num !== null) minutes = num;
+        }
+        if (seconds === null && (/秒/.test(key) || /second/i.test(key))) {
+            if (num !== null) seconds = num;
+        }
+
+        if (!fallbackTime) fallbackTime = parseTimeToSeconds(normalized || str);
+    }
+
+    if (minutes !== null || seconds !== null) {
+        const mm = Math.max(0, minutes ?? 0);
+        const ss = Math.max(0, seconds ?? 0);
+        return mm * 60 + ss;
+    }
+
+    return fallbackTime;
+};
+
+const findValueInData = (data: Record<string, any> | undefined, aliases: string[]): number => {
+    if (!data) return 0;
+
+    const entries: Array<{ key: string; value: any }> = [];
+
+    for (const [key, value] of Object.entries(data)) {
+        const nk = normalizeKey(key).replace(/ケア評価|ワンカラ評価|タイム評価/g, "");
+        if (aliases.some(alias => nk.includes(normalizeKey(alias)))) {
+            entries.push({ key, value });
+        }
+    }
+
+    if (entries.length === 0) return 0;
+
+    return combineTimeFragments(entries);
+};
+
+export default function TimeRadar({
+    avgData,
+    nationalFallback,
+    previousTotal,
+    currentTotal,
+    averageDetailData,
+    previousDetailData,
+    currentDetailData
+}: TimeRadarProps) {
+    const nationalTotal = pickAverageTimeScore(avgData, nationalFallback);
+    const prevTotal = previousTotal || nationalTotal;
+    const curTotal = currentTotal;
+
+    // Key aliases for each axis category
+    const axisAliases: Record<AxisKeyTime, string[]> = {
+        "合計タイム": ["両手総合計", "総合計タイム", "総合計", "合計タイム"],
+        "オフ／フィル": ["オフ", "フィル", "フィルイン"],
+        "ケア": ["ケア"],
+        "ベース": ["ワンカラベース", "ワンカラー ベース", "ベース"],
+        "カラー": ["ワンカラカラー", "ワンカラー カラー", "カラー"],
+        "トップ": ["ワンカラトップ", "ワンカラー トップ", "トップ"],
+    };
+
+    // First pass: collect all raw values
+    const rawValues: Record<AxisKeyTime, { nat: number; prev: number; cur: number }> = {
+        "合計タイム": { nat: 0, prev: 0, cur: 0 },
+        "オフ／フィル": { nat: 0, prev: 0, cur: 0 },
+        "ケア": { nat: 0, prev: 0, cur: 0 },
+        "ベース": { nat: 0, prev: 0, cur: 0 },
+        "カラー": { nat: 0, prev: 0, cur: 0 },
+        "トップ": { nat: 0, prev: 0, cur: 0 },
+    };
+
+    for (const axis of axes) {
+        if (axis === "合計タイム") {
+            // Use the total time passed as props (from assessment or blobs)
+            // These should be the actual total times, not calculated from sub-categories
+            const natTotal = findValueInData(averageDetailData, axisAliases["合計タイム"]) || nationalTotal;
+            const prevTotalFromData = findValueInData(previousDetailData, axisAliases["合計タイム"]) || prevTotal;
+            const curTotalFromData = findValueInData(currentDetailData, axisAliases["合計タイム"]) || curTotal;
+
+            rawValues[axis] = {
+                nat: natTotal,
+                prev: prevTotalFromData,
+                cur: curTotalFromData,
+            };
+        } else {
+            const aliases = axisAliases[axis] || [];
+            rawValues[axis] = {
+                nat: findValueInData(averageDetailData, aliases),
+                prev: findValueInData(previousDetailData, aliases),
+                cur: findValueInData(currentDetailData, aliases),
+            };
+        }
+    }
+
+    // Debug: Log raw values
+    console.log("TimeRadar - Raw Values:", rawValues);
+    console.log("TimeRadar - Props (nat/prev/cur):", { nationalTotal, prevTotal, curTotal });
+    console.log("TimeRadar - averageDetailData:", averageDetailData);
+    console.log("TimeRadar - previousDetailData:", previousDetailData);
+    console.log("TimeRadar - currentDetailData:", currentDetailData);
+
+    // Build rows with percentages using fixed max values
+    const rows = axes.map((axis) => {
+        const { nat: natRaw, prev: prevRaw, cur: curRaw } = rawValues[axis];
+        const max = FIXED_MAX_BY_AXIS[axis];
+        return {
+            axis,
+            national: normalize(natRaw, max),
+            previous: normalize(prevRaw, max),
+            current: normalize(curRaw, max),
+            nationalRaw: natRaw,
+            previousRaw: prevRaw,
+            currentRaw: curRaw,
+            max,
+        };
+    });
+
+    console.log("TimeRadar - Rows for chart:", rows);
+
+    return (
+        <div className="relative h-[700px] overflow-hidden rounded-2xl border border-[#e8e9f4] bg-white">
+            <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#e87674] via-white to-[#54b4bd]" />
+            <div className="flex flex-col gap-2 px-6 pt-6 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm font-semibold text-slate-700">グラフの名前</div>
+                <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-600">
+                    {legendItems.map((item) => (
+                        <div key={item.label} className="flex items-center gap-2">
+                            <span className="inline-flex h-2.5 w-8 rounded-full" style={{ backgroundColor: item.color }} />
+                            <span>{item.label}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            <div className="relative h-[540px] px-6 pb-12 pt-6">
+                <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart data={rows} startAngle={90} endAngle={-270} margin={{ top: 24, right: 24, bottom: 10, left: 24 }}>
+                        <PolarGrid gridType="polygon" radialLines polarRadius={[45, 90, 135, 180, 225]} stroke="#e6e9f5" />
+                        <PolarAngleAxis dataKey="axis" tick={false} />
+                        <PolarRadiusAxis domain={[0, 100]} tickCount={5} axisLine={false} tick={false} />
+                        <Radar name="全国平均" dataKey="national" stroke="#64CBD3" strokeWidth={2} fill="#64CBD3" fillOpacity={0.18} dot={<NationalDot />} />
+                        <Radar name="前回" dataKey="previous" stroke="#4075B5" strokeWidth={2} fill="#4075B5" fillOpacity={0.15} dot />
+                        <Radar name="今回" dataKey="current" stroke="#F15C4B" strokeWidth={2} fill="#F15C4B" fillOpacity={0.18} dot />
+                    </RadarChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0">
+                    {/* Axis labels with fixed max values */}
+                    <div className="absolute left-1/2 top-[2%] -translate-x-1/2 text-center">
+                        <div className="text-sm font-semibold text-[#2a8090]">合計タイム</div>
+                        <div className="mt-0.5 text-[10px] text-slate-500">{formatSecondsToTime(FIXED_MAX_BY_AXIS["合計タイム"])}</div>
+                    </div>
+                    <div className="absolute left-[70%] top-[28%] -translate-y-1/2 text-left">
+                        <div className="text-sm font-semibold text-[#2a8090]">オフ／フィル</div>
+                        <div className="mt-0.5 text-[10px] text-slate-500">{formatSecondsToTime(FIXED_MAX_BY_AXIS["オフ／フィル"])}</div>
+                    </div>
+                    <div className="absolute left-[70%] bottom-[26%] -translate-y-1/2 text-left">
+                        <div className="text-sm font-semibold text-[#2a8090]">ケア</div>
+                        <div className="mt-0.5 text-[10px] text-slate-500">{formatSecondsToTime(FIXED_MAX_BY_AXIS["ケア"])}</div>
+                    </div>
+                    <div className="absolute bottom-[6%] left-1/2 -translate-x-1/2 text-center">
+                        <div className="text-sm font-semibold text-[#2a8090]">ワンカラー（ベース）</div>
+                        <div className="mt-0.5 text-[10px] text-slate-500">{formatSecondsToTime(FIXED_MAX_BY_AXIS["ベース"])}</div>
+                    </div>
+                    <div className="absolute left-[18%] bottom-[28%] -translate-y-1/2 text-right">
+                        <div className="text-sm font-semibold text-[#2a8090]">ワンカラー（カラー）</div>
+                        <div className="mt-0.5 text-[10px] text-slate-500">{formatSecondsToTime(FIXED_MAX_BY_AXIS["カラー"])}</div>
+                    </div>
+                    <div className="absolute left-[18%] top-[28%] -translate-y-1/2 text-right">
+                        <div className="text-sm font-semibold text-[#2a8090]">ワンカラー（トップ）</div>
+                        <div className="mt-0.5 text-[10px] text-slate-500">{formatSecondsToTime(FIXED_MAX_BY_AXIS["トップ"])}</div>
+                    </div>
+                </div>
+            </div>
+            <div className="pointer-events-none absolute inset-x-6 bottom-2">
+                <div className="rounded-lg border border-slate-200 bg-white/85 px-3 py-2 text-[11px] text-slate-600 backdrop-blur">
+                    {rows.map((row) => (
+                        <div key={row.axis} className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-xs font-semibold text-slate-700">{row.axis}</span>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <span className="text-[#64CBD3] font-medium">
+                                    全国平均: {formatScore(row.nationalRaw)} / {formatScore(row.max)}
+                                </span>
+                                <span className="text-[#4075B5] font-medium">
+                                    前回: {formatScore(row.previousRaw)} / {formatScore(row.max)}
+                                </span>
+                                <span className="text-[#F15C4B] font-medium">
+                                    今回: {formatScore(row.currentRaw)} / {formatScore(row.max)}
+                                </span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
