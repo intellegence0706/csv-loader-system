@@ -408,27 +408,43 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
     };
 
     const renderEvaluationGraph = (row: TimeDetailRow) => {
+        const activeBands = new Set<number>();
+        SERIES_META.forEach((meta) => {
+            const rank = row.ranks[meta.key];
+            if (rank && rank >= 1 && rank <= RANK_BANDS.length) {
+                activeBands.add(rank);
+            }
+        });
 
-        const hasRank = SERIES_META.some((meta) => row.ranks[meta.key] && row.ranks[meta.key]! >= 1);
+        const hasRank = activeBands.size > 0;
         if (!hasRank) {
             return (
-                <div className="flex h-12 items-center justify-center text-[10px] text-slate-400">
-                    —
+                <div className="flex h-12 w-full items-center px-2" aria-hidden="true">
+                    <div className="h-[28px] w-full bg-[#fce2de]" />
                 </div>
             );
         }
 
         return (
-            <div className="relative h-14 rounded bg-[#f8fbfd] px-3 py-2">
-                <div className="grid h-full grid-cols-4 gap-2">
-                    {RANK_BANDS.map((band) => (
+            <div className="relative h-14 rounded bg-[#f8fbfd] px-3 py-2 overflow-hidden">
+                {/* Vertical dotted guides for each band */}
+                {RANK_BANDS.map((band, index) => {
+                    const columnWidth = 100 / RANK_BANDS.length;
+                    const centerPercent = (index + 0.5) * columnWidth;
+                    return (
                         <div
-                            key={band.label}
-                            className="relative flex h-full items-end justify-center rounded border border-dashed border-[#d9e4ea] bg-white"
-                        >
-                        </div>
-                    ))}
-                </div>
+                            key={`guide-${band.label}`}
+                            className="absolute pointer-events-none"
+                            style={{
+                                top: "6px",
+                                bottom: "6px",
+                                left: `calc(${centerPercent}% + 20px)`,
+                                borderLeft: "1px dashed #d9e4ea",
+                                opacity: 0.9,
+                            }}
+                        />
+                    );
+                })}
                 {SERIES_META.map((series) => {
                     const rank = row.ranks[series.key];
                     if (!rank || rank < 1 || rank > RANK_BANDS.length) return null;
@@ -443,7 +459,7 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                             className="absolute h-[2px]"
                             style={{
                                 left: "8px",
-                                width: `calc(${centerPercent}% - 12px)`,
+                                width: `calc(${centerPercent}% + 14px)`,
                                 top: topPosition,
                                 backgroundColor: series.color,
                                 opacity: 0.85,
@@ -495,7 +511,7 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                         </th>
                         <th
                             colSpan={2}
-                            className="bg-[#5eb9c5] px-1 py-1 text-center text-white border border-[#d4d4d4]"
+                            className="bg-[#3D80B8] px-1 py-1 text-center text-white border border-[#d4d4d4]"
                         >
                             前回
                         </th>
@@ -516,10 +532,10 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                         <th className="bg-[#5eb9c5] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
                             スコア
                         </th>
-                        <th className="bg-[#5eb9c5] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
+                        <th className="bg-[#3D80B8] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
                             比較
                         </th>
-                        <th className="bg-[#5eb9c5] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
+                        <th className="bg-[#3D80B8] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
                             スコア
                         </th>
                         <th className="bg-[#ffb8b6] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
@@ -528,7 +544,7 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                         {RANK_BANDS.map((band) => (
                             <th
                                 key={band.label}
-                                className="bg-[#5eb9c5] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]"
+                                className={`${band.label === "B" ? "bg-[#FFE78E] text-[#4FB1BC]" : "bg-[#5eb9c5] text-white"} px-1 py-1 text-center text-[10px] border border-[#d4d4d4]`}
                                 style={{ width: 45 }}
                             >
                                 {band.label}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import Sidebar from "@/components/layout/Sidebar";
 import { supabase } from "@/integrations/supabase/client";
@@ -19,8 +19,11 @@ import EvaluationRankStandardTable from "@/components/EvaluationRankStandardTabl
 import ReferenceTimeTable from "@/components/ReferenceTimeTable";
 import TimeDetailCategoryTable from "@/components/TimeDetailCategoryTable";
 import AssessmentTabs from "@/components/customer/AssessmentTabs";
+import { LiteNoticeBanner } from "@/components/customer/LiteNoticeBanner";
 import OverviewRadar from "../components/customer/OverviewRadar";
 import TimeRadar from "../components/customer/TimeRadar";
+import { downloadPDF } from "@/utils/pdfGenerator";
+import { elementToImage } from "@/utils/chartToImage";
 
 
 type JsonMap = Record<string, number | string | null | undefined>;
@@ -174,12 +177,13 @@ const RANK_BANDS: Array<{ value: number; label: string }> = [
 const JP_KEYS = ["総合", "ケア", "ワンカラー", "タイム"] as const;
 type AxisKey = (typeof JP_KEYS)[number];
 
-const Card: React.FC<{ title?: string; children: React.ReactNode; className?: string }> = ({
-    title,
-    children,
-    className = "",
-}) => (
-    <div className={`rounded-2xl border bg-white shadow-sm ${className}`}>
+type LocalCardProps = React.HTMLAttributes<HTMLDivElement> & {
+    title?: string;
+    children: React.ReactNode;
+};
+
+const Card: React.FC<LocalCardProps> = ({ title, children, className = "", ...rest }) => (
+    <div className={`rounded-2xl bg-white shadow-sm ${className}`} {...rest}>
         {title && <div className="border-b px-4 py-2 text-sm font-semibold">{title}</div>}
         <div className="p-4">{children}</div>
     </div>
@@ -714,6 +718,7 @@ function radarDataForCategory(category: string, currentData?: JsonMap, averageDa
             name: key,
             "全国平均": averageVal,
             "今回": currentVal
+
         });
     }
 
@@ -779,12 +784,93 @@ export default function CustomerDetail() {
     const [prevOneColorTotalFromBlob, setPrevOneColorTotalFromBlob] = useState<number>(0);
     const [prevTimeTotalFromBlob, setPrevTimeTotalFromBlob] = useState<number>(0);
     const [currTimeRaw, setCurrTimeRaw] = useState<string>("");
+    const [activeTab, setActiveTab] = useState<string>("overall");
+    const activeTabRef = useRef("overall");
 
-    const handleSavePdf = () => {
+    useEffect(() => {
+        activeTabRef.current = activeTab;
+    }, [activeTab]);
+
+    const handleSavePdf = async () => {
+        const captureElement = async (elementId: string) => {
+            const element = document.getElementById(elementId);
+            if (!element) throw new Error(`Element ${elementId} not found`);
+            element.scrollIntoView({ block: "center" });
+            return await elementToImage(elementId, {
+                scale: 2,
+                backgroundColor: "#ffffff",
+            });
+        };
+
+        const waitForRender = (duration = 450) =>
+            new Promise<void>((resolve) => {
+                setTimeout(resolve, duration);
+            });
+
+        const switchTab = async (tabValue: string) => {
+            if (activeTabRef.current !== tabValue) {
+                setActiveTab(tabValue);
+            }
+            await waitForRender();
+        };
+
+        const sectionsPlan = [
+            { tab: "overall", id: "pdf-overview-card", title: "総合サマリー" },
+            { tab: "overall", id: "pdf-rank-explanation", title: "評価ランク説明" },
+            { tab: "overall", id: "pdf-rank-standard-overall", title: "評価ランク表" },
+            { tab: "care", id: "pdf-care-card", title: "ケア評価" },
+            { tab: "care", id: "pdf-care-rank-standard", title: "ケア評価ランク表" },
+            { tab: "onecolor", id: "pdf-onecolor-summary", title: "ワンカラー評価" },
+            { tab: "onecolor", id: "pdf-onecolor-detail", title: "ワンカラー評価（詳細）" },
+            { tab: "onecolor", id: "pdf-onecolor-rank-standard", title: "ワンカラー評価ランク表" },
+            { tab: "time", id: "pdf-time-card", title: "タイム評価" },
+            { tab: "time", id: "pdf-time-radar-card", title: "タイム詳細" },
+        ];
+
+        const sections: Array<{ title: string; image?: string }> = [];
+        const previousTab = activeTabRef.current;
+
         try {
-            window.print();
+            toast({
+                title: "PDF生成中...",
+                description: "セクションを順番にキャプチャしています。",
+            });
+
+            for (const section of sectionsPlan) {
+                try {
+                    await switchTab(section.tab);
+                    const image = await captureElement(section.id);
+                    sections.push({ title: section.title, image });
+                } catch (error) {
+                    console.warn(`Failed to capture ${section.id}`, error);
+                    sections.push({ title: section.title });
+                }
+            }
+
+            await switchTab(previousTab);
+
+            const filename = `${customer?.name || "customer"}_${customer?.application_date || "assessment"}.pdf`;
+
+            await downloadPDF(
+                {
+                    customer,
+                    sections,
+                },
+                filename,
+            );
+
+            toast({
+                title: "PDF生成成功",
+                description: "PDFファイルがダウンロードされました。",
+            });
         } catch (e) {
-            console.error("Failed to open print dialog", e);
+            console.error("Failed to generate PDF", e);
+            toast({
+                title: "PDF生成エラー",
+                description: "PDFの生成に失敗しました。",
+                variant: "destructive",
+            });
+            await switchTab(previousTab);
         }
     };
 
@@ -1715,26 +1801,30 @@ export default function CustomerDetail() {
         return [
             {
                 name: "総合",
-                "National Average": (totalPrev / totalMax) * 100,
-                "This Time": (totalCur / totalMax) * 100
+                "National Average": (totalAvg / totalMax) * 100,
+                Previous: (totalPrev / totalMax) * 100,
+                Current: (totalCur / totalMax) * 100
             },
             {
                 name: "ケア",
                 "National Average": ((prevAggData.ケア || 0) / careMax) * 100,
-                "This Time": (((num(assessment?.care_score) ?? 0)) / careMax) * 100
+                Previous: ((prevAggData.ケア || 0) / careMax) * 100,
+                Current: (((num(assessment?.care_score) ?? 0)) / careMax) * 100
             },
             {
                 name: "ワンカラー",
                 "National Average": ((prevAggData.ワンカラー || 0) / oneColorMax) * 100,
-                "This Time": (((num(assessment?.one_color_score) ?? 0)) / oneColorMax) * 100
+                Previous: ((prevAggData.ワンカラー || 0) / oneColorMax) * 100,
+                Current: (((num(assessment?.one_color_score) ?? 0)) / oneColorMax) * 100
             },
             {
                 name: "タイム",
                 "National Average": ((prevAggData.タイム || 0) / timeMax) * 100,
-                "This Time": (((num(assessment?.time_score) ?? 0)) / timeMax) * 100
+                Previous: ((prevAggData.タイム || 0) / timeMax) * 100,
+                Current: (((num(assessment?.time_score) ?? 0)) / timeMax) * 100
             },
         ];
-    }, [totalPrev, totalCur, prevAggData, scoreCurrent, assessment]);
+    }, [totalAvg, totalPrev, totalCur, prevAggData, scoreCurrent, assessment]);
 
     const careRadarData = useMemo(() => {
         return radarDataForCategory("care", careScores, prevAggData);
@@ -1748,6 +1838,19 @@ export default function CustomerDetail() {
         return radarDataForCategory("time", timeScores, prevAggData);
     }, [timeScores, prevAggData]);
 
+    const liteFlagValue = useMemo(() => {
+        if (!scoreCurrent) return undefined;
+        const candidateKeys = ["正規/ライト", "正規／ライト"];
+        for (const key of candidateKeys) {
+            if (key in scoreCurrent) {
+                return scoreCurrent[key];
+            }
+        }
+        return undefined;
+    }, [scoreCurrent]);
+
+    const shouldShowLiteNotice = liteFlagValue === null;
+
     return (
         <div className="flex min-h-screen bg-[#faf7f6]">
             <Sidebar />
@@ -1758,21 +1861,14 @@ export default function CustomerDetail() {
                         <div className="flex flex-col leading-tight">
                             <h1 className="text-[15px] font-bold text-gray-900 md:text-[25px]">
                                 基礎スキルチェック
-                            </h1><br />
-                            <div className="text-[14px] tracking-wide text-gray-500 uppercase">
+                            </h1>
+                            <div className="text-[13px] tracking-wide text-gray-500 uppercase mt-2">
                                 BASIC NAIL SKILLS CHECK
                             </div>
                         </div>
                     </div>
-
-                    <div className="my-10 border border-[#e34b4b] bg-[#ffffff] px-6 py-6 text-center text-sm text-[#b12424] leading-relaxed">
-                        <p className="text-orange-700">
-                            この結果は基礎スキルチェックライト（体験版）のものであり、<br />
-                            基礎スキルチェック™の正規の結果とは異なりますので、ご了承ください。
-                        </p>
-                    </div>
-
-                    <div className="bg-[#fff6f5] p-1 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+                    <LiteNoticeBanner visible={shouldShowLiteNotice} />
+                    <div className="bg-[#fff6f5] p-1 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 mt-7">
 
                         <div>
                             <div className="text-lg font-semibold text-slate-750">
@@ -1823,16 +1919,15 @@ export default function CustomerDetail() {
                     </div>
                     <br />
                     <div className="mb-3">
-                        <Tabs defaultValue="overall">
+                        <Tabs value={activeTab} onValueChange={setActiveTab}>
                             <AssessmentTabs />
+                            <TabsContent value="overall">
 
-                            <TabsContent value="overall" className="mt-3">
-
-                                <Card>
-                                    <div className="mb-3 flex items-center gap-2">
+                                <Card id="pdf-overview-card">
+                                    {/* <div className="mb-3 flex items-center gap-2">
                                         <Chip tone="info">全国平均</Chip>
                                         <Chip tone="danger">今回</Chip>
-                                    </div>
+                                    </div> */}
 
                                     <div className="w-full">
 
@@ -1973,12 +2068,10 @@ export default function CustomerDetail() {
                                             </tbody>
                                         </table>
                                     </div>
-
-                                    {/* Radar */}
                                     <OverviewRadar radarRows={radarRows} structuredData={structuredData} />
                                 </Card>
-
-                                <div className="w-full bg-white p-6">
+                                <br />
+                                <div id="pdf-rank-explanation" className="w-full bg-white p-6">
 
                                     <h3 className="text-base font-semibold mb-3">評価ランク説明</h3>
                                     <br />
@@ -1988,7 +2081,7 @@ export default function CustomerDetail() {
                                         >
                                             <thead>
                                                 <tr>
-                                                    {/* left header cell */}
+
                                                     <th
                                                         className="w-[160px] bg-[#d5d5d5] border-r border-b border-[#AFAFAF] px-4 py-3 text-center font-semibold"
                                                     >
@@ -2066,13 +2159,15 @@ export default function CustomerDetail() {
                                             </tbody>
                                         </table>
                                     </div>
+                                </div>
+                                <div id="pdf-rank-standard-overall">
                                     <EvaluationRankStandardTable />
                                 </div>
                             </TabsContent>
 
-                            <TabsContent value="care" className="mt-3">
+                            <TabsContent value="care">
 
-                                <Card>
+                                <Card id="pdf-care-card">
                                     {(() => {
                                         const denom = 410;
                                         const avgScore = (prevCareTotal || prevCareTotalFromBlob || 0) as number;
@@ -2080,321 +2175,327 @@ export default function CustomerDetail() {
                                         const avgRank = (prevRatings.care as string) || rankFromScore(avgScore, denom);
                                         const curRank = (assessment?.care_rating as string) || rankFromScore(curScore, denom);
                                         return (
-                                            <table className="w-full border-collapse text-sm text-slate-700">
-                                                <thead>
-                                                    <tr>
-                                                        <th rowSpan={2} className="w-32 bg-[#e5e5e5] border border-[#dddddd] px-3 py-3 text-left font-semibold">
-                                                            カテゴリー
-                                                        </th>
-                                                        <th colSpan={2} className="bg-[#4fb1bc] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold">
-                                                            全国平均
-                                                        </th>
-                                                        <th colSpan={2} className="bg-[#fb9793] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold">
-                                                            今回
-                                                        </th>
-                                                    </tr>
-                                                    <tr>
-                                                        <th className="bg-[#6ebec7] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
-                                                            評価ランク
-                                                        </th>
-                                                        <th className="bg-[#6ebec7] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
-                                                            スコア
-                                                        </th>
-                                                        <th className="bg-[#ffb3ae] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
-                                                            評価ランク
-                                                        </th>
-                                                        <th className="bg-[#ffb3ae] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
-                                                            スコア
-                                                        </th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    <tr className="align-middle">
-                                                        <td className="bg-[#4fb1bc] text-white border border-[#dddddd] px-3 py-3 font-medium whitespace-nowrap">
-                                                            ケア
-                                                        </td>
-                                                        <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
-                                                            <span className="font-semibold text-[#138495]">{avgRank}</span>
-                                                        </td>
-                                                        <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
-                                                            <span className="font-semibold text-[#138495]">{avgScore}</span>{" "}
-                                                            <span className="text-slate-400">/ {denom}</span>
-                                                        </td>
-                                                        <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#fff7f7]">
-                                                            <span className="font-semibold text-[#e94444]">{curRank}</span>
-                                                        </td>
-                                                        <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#fff7f7]">
-                                                            <span className="font-semibold text-[#e94444]">{curScore}</span>{" "}
-                                                            <span className="text-slate-400">/ {denom}</span>
-                                                        </td>
-                                                    </tr>
-                                                </tbody>
-                                            </table>
+                                            <>
+                                                <table className="w-full border-collapse text-sm text-slate-700">
+                                                    <thead>
+                                                        <tr>
+                                                            <th rowSpan={2} className="w-32 bg-[#e5e5e5] border border-[#dddddd] px-3 py-3 text-left font-semibold">
+                                                                カテゴリー
+                                                            </th>
+                                                            <th colSpan={2} className="bg-[#4fb1bc] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold">
+                                                                全国平均
+                                                            </th>
+                                                            <th colSpan={2} className="bg-[#fb9793] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold">
+                                                                今回
+                                                            </th>
+                                                        </tr>
+                                                        <tr>
+                                                            <th className="bg-[#6ebec7] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
+                                                                評価ランク
+                                                            </th>
+                                                            <th className="bg-[#6ebec7] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
+                                                                スコア
+                                                            </th>
+                                                            <th className="bg-[#ffb3ae] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
+                                                                評価ランク
+                                                            </th>
+                                                            <th className="bg-[#ffb3ae] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
+                                                                スコア
+                                                            </th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        <tr className="align-middle">
+                                                            <td className="bg-[#4fb1bc] text-white border border-[#dddddd] px-3 py-3 font-medium whitespace-nowrap">
+                                                                ケア
+                                                            </td>
+                                                            <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
+                                                                <span className="font-semibold text-[#138495]">{avgRank}</span>
+                                                            </td>
+                                                            <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
+                                                                <span className="font-semibold text-[#138495]">{avgScore}</span>{" "}
+                                                                <span className="text-slate-400">/ {denom}</span>
+                                                            </td>
+                                                            <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#fff7f7]">
+                                                                <span className="font-semibold text-[#e94444]">{curRank}</span>
+                                                            </td>
+                                                            <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#fff7f7]">
+                                                                <span className="font-semibold text-[#e94444]">{curScore}</span>{" "}
+                                                                <span className="text-slate-400">/ {denom}</span>
+                                                            </td>
+                                                        </tr>
+                                                    </tbody>
+                                                </table><br />
+                                                <div className="w-full">
+                                                    <table className="w-full border-collapse text-sm text-slate-700">
+                                                        <thead>
+                                                            <tr>
+                                                                <th rowSpan={2} className="w-24 bg-[#6ebec7] text-white border border-[#d4d4d4] px-3 py-2 text-center text-white">カテゴリー</th>
+                                                                <th rowSpan={2} className="w-44 bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">評価項目</th>
+                                                                <th rowSpan={2} className="w-12 bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">必須</th>
+                                                                <th colSpan={2} className="bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">チェックポイント</th>
+                                                                <th rowSpan={2} className="w-12 bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">配点</th>
+                                                                <th colSpan={2} className="w-24 bg-[#6ebec7] text-white border border-[#d4d4d4] px-3 py-2 text-center">平均</th>
+                                                                <th colSpan={1} className="w-24 bg-[#fb9793] text-white border border-[#d4d4d4] px-3 py-2 text-center">今回</th>
+                                                                <th colSpan={4} className="w-40 bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">評価グラフ</th>
+                                                            </tr>
+                                                            <tr>
+                                                                <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white">番号</th>
+                                                                <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white">内容</th>
+                                                                <th className="bg-[#8eced4] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">比較</th>
+                                                                <th className="bg-[#8eced4] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">スコア</th>
+                                                                <th className="bg-[#ffb3ae] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">スコア</th>
+                                                                <th className="bg-[#FFE78E] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-[#4FB1BC]">B</th>
+                                                                <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white">A</th>
+                                                                <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white ">AA</th>
+                                                                <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white">AAA</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {(() => {
+
+                                                                const ensureMapCare = (m: any): Record<string, any> => {
+                                                                    if (!m) return {};
+                                                                    if (typeof m === "string") {
+                                                                        try {
+                                                                            const parsed = JSON.parse(m);
+                                                                            return parsed && typeof parsed === "object" ? parsed : {};
+                                                                        } catch {
+                                                                            return {};
+                                                                        }
+                                                                    }
+                                                                    return typeof m === "object" ? (m as Record<string, any>) : {};
+                                                                };
+                                                                let currentBlob = ensureMapCare(careScoreCurrentData);
+                                                                let previousBlob = ensureMapCare(careScorePreviousData);
+                                                                const isEmpty = (m: Record<string, any>) => !m || Object.keys(m).length === 0;
+                                                                if (isEmpty(currentBlob) && careEvaluationGraph && Object.keys(careEvaluationGraph).length) {
+                                                                    currentBlob = careEvaluationGraph as Record<string, any>;
+                                                                }
+                                                                if (isEmpty(previousBlob)) {
+                                                                    if (careEvaluationGraphPrevious && Object.keys(careEvaluationGraphPrevious).length) {
+                                                                        previousBlob = careEvaluationGraphPrevious as Record<string, any>;
+                                                                    } else {
+                                                                        previousBlob = {} as Record<string, any>;
+                                                                    }
+                                                                }
+                                                                const normalizeKey = (s: string) =>
+                                                                    (typeof s === "string" ? s : String(s))
+                                                                        .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0))
+                                                                        .replace(/[‐‑–—−ーｰ－]/g, "-")
+                                                                        .replace(/[［］【】\[\]\(\)\s\u3000]/g, "");
+
+                                                                const getScore = (map: Record<string, any>, code: string, label: string) => {
+                                                                    if (!map || Object.keys(map).length === 0) return 0;
+                                                                    const nCode = normalizeKey(code || "");
+                                                                    const nCodeA = normalizeKey(`[ケア] ${code}`);
+                                                                    const nCodeB = normalizeKey(`ケア${code}`);
+                                                                    const nLabel = normalizeKey(label || "");
+
+                                                                    for (const [rawKey, rawVal] of Object.entries(map)) {
+                                                                        const nk = normalizeKey(rawKey);
+                                                                        if (
+                                                                            (nCode && nk.includes(nCode)) ||
+                                                                            (nCodeA && nk.includes(nCodeA)) ||
+                                                                            (nCodeB && nk.includes(nCodeB)) ||
+                                                                            (nLabel && nk.includes(nLabel))
+                                                                        ) {
+                                                                            const num = Number(String((rawVal as any) ?? "").replace(/[^\d.-]/g, ""));
+                                                                            if (!Number.isNaN(num)) return num;
+                                                                        }
+                                                                    }
+                                                                    return 0;
+                                                                };
+                                                                const ArrowGlyph = ({ dir }: { dir: "up" | "right" | "down" }) => {
+                                                                    const color = dir === "up" ? "#1a73e8" : dir === "down" ? "#f44336" : "#2ea44f";
+                                                                    const rotation = dir === "right" ? 90 : dir === "down" ? 180 : 0;
+                                                                    return (
+                                                                        <svg
+                                                                            width="30"
+                                                                            height="20"
+                                                                            viewBox="0 0 24 24"
+                                                                            style={{ transform: `rotate(${rotation}deg)` }}
+                                                                            aria-hidden="true"
+                                                                            focusable="false"
+                                                                        >
+                                                                            <path d="M10 18v-6H7l5-6 5 6h-3v6h-2z" fill={color} />
+                                                                        </svg>
+                                                                    );
+                                                                };
+                                                                const arrowFrom = (v?: number | null) => {
+                                                                    if (v === 1) return <ArrowGlyph dir="up" />;
+                                                                    if (v === 2) return <ArrowGlyph dir="right" />;
+                                                                    if (v === 3) return <ArrowGlyph dir="down" />;
+                                                                    return <span>—</span>;
+                                                                };
+                                                                const getComp = (map: JsonMap | undefined, code: string, label: string) => {
+                                                                    if (!map) return undefined;
+                                                                    const nCode = normalizeKey(code || "");
+                                                                    const nLabel = normalizeKey(label || "");
+                                                                    const entry =
+                                                                        Object.entries(map).find(([k]) => {
+                                                                            const nk = normalizeKey(k);
+                                                                            return (nCode && nk.includes(nCode)) || (nLabel && nk.includes(nLabel));
+                                                                        }) || null;
+
+                                                                    if (!entry) return undefined;
+                                                                    const val = entry[1];
+                                                                    // Prefer numeric 1/2/3 if present
+                                                                    const n = typeof val === "number" ? val : Number(String(val).replace(/[^\d.-]/g, ""));
+                                                                    if (Number.isFinite(n) && n !== 0) return n;
+                                                                    // Map arrow glyphs to 1/2/3
+                                                                    if (typeof val === "string") {
+                                                                        const s = val;
+                                                                        if (/[↗↑]/.test(s)) return 1;
+                                                                        if (/[→➡]/.test(s)) return 2;
+                                                                        if (/[↘↓]/.test(s)) return 3;
+                                                                    }
+                                                                    return undefined;
+                                                                };
+
+                                                                const getEvaluationRank = (map: Record<string, any> | undefined, code: string, label: string): number | null => {
+                                                                    return extractRankValue(map, code, label);
+                                                                };
+
+                                                                const renderEvaluationGraph = (prevRank: number | null, currRank: number | null) => {
+                                                                    if (!prevRank && !currRank) {
+                                                                        return (
+                                                                            <div className="flex h-4 items-center justify-center rounded bg-[#fce2de] text-[10px] font-medium text-[#a8b0bb]">
+                                                                            </div>
+                                                                        );
+                                                                    }
+
+                                                                    const rankToWidth = (rank: number) => `${Math.max(0, Math.min(4, rank)) * 25}%`;
+                                                                    return (
+                                                                        <div className="relative h-7 rounded bg-[#f8fbfd]">
+                                                                            <div className="absolute inset-0 grid grid-cols-4">
+                                                                                <div className="border-r border-dashed border-[#d8e4ec]" />
+                                                                                <div className="border-r border-dashed border-[#d8e4ec]" />
+                                                                                <div className="border-r border-dashed border-[#d8e4ec]" />
+                                                                                <div />
+                                                                            </div>
+                                                                            <div className="absolute inset-x-[6px] inset-y-0">
+                                                                                {prevRank && (
+                                                                                    <div
+                                                                                        className="absolute left-0 top-[28%] h-[4px] rounded-full bg-[#3D80B8]"
+                                                                                        style={{ width: rankToWidth(prevRank) }}
+                                                                                    />
+                                                                                )}
+                                                                                {currRank && (
+                                                                                    <div
+                                                                                        className="absolute left-0 bottom-[28%] h-[4px] rounded-full bg-[#F24822]"
+                                                                                        style={{ width: rankToWidth(currRank) }}
+                                                                                    />
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                };
+
+                                                                const buildSeqPuller = (map: Record<string, any> | undefined) => {
+                                                                    const toCompNum = (v: any) => {
+                                                                        if (typeof v === "number") return v;
+                                                                        const s = String(v ?? "");
+                                                                        if (/[↗↑]/.test(s)) return 1;
+                                                                        if (/[→➡]/.test(s)) return 2;
+                                                                        if (/[↘↓]/.test(s)) return 3;
+                                                                        const n = Number(s.replace(/[^\d.-]/g, ""));
+                                                                        return Number.isFinite(n) ? n : undefined;
+                                                                    };
+                                                                    // Prefer ordering by checkpoint code "NN-N" when present to align with table rows
+                                                                    const entries = Object.entries(map || {});
+                                                                    const parsed = entries.map(([k, v]) => {
+                                                                        const nk = normalizeKey(k);
+                                                                        const m = nk.match(/(\d{1,2})-(\d{1,2})/);
+                                                                        const keyOrder = m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : [999, 999];
+                                                                        return { keyOrder, num: toCompNum(v) };
+                                                                    });
+                                                                    parsed.sort((a, b) => (a.keyOrder[0] - b.keyOrder[0]) || (a.keyOrder[1] - b.keyOrder[1]));
+                                                                    const nums = parsed.map(p => p.num).filter((v) => v !== undefined) as number[];
+                                                                    let idx = 0;
+                                                                    return () => (idx < nums.length ? nums[idx++] : undefined);
+                                                                };
+                                                                const nextAvgComp = buildSeqPuller(careComparisonAverageData as any);
+
+                                                                const avgCompMap = ensureMapCare(careComparisonAverageData);
+                                                                const prevCompMap = ensureMapCare(careComparisonPreviousData);
+                                                                const evalCurrentMap = ensureMapCare(careEvaluationGraph);
+                                                                const evalPreviousMap = ensureMapCare(careEvaluationGraphPrevious);
+
+                                                                const seriesPrev = extractCareRankSeries(evalPreviousMap);
+                                                                const seriesCurr = extractCareRankSeries(evalCurrentMap);
+                                                                let overallIdx = 0;
+
+                                                                return CARE_EVALUATION_MASTER.flatMap((cat) => {
+
+                                                                    const catRowSpan = cat.items.reduce((s, it) => s + it.checkpoints.length, 0);
+                                                                    let catRendered = false;
+
+                                                                    return cat.items.flatMap((it) => {
+                                                                        const itemRowSpan = it.checkpoints.length;
+                                                                        return it.checkpoints.map((cp, idx) => {
+                                                                            const points = cp.points ?? 10;
+                                                                            const avgComp = getComp(avgCompMap, cp.code, cp.label) ?? nextAvgComp();
+                                                                            const avgScore = getScore(previousBlob, cp.code, cp.label);
+                                                                            const curScore = getScore(currentBlob, cp.code, cp.label);
+                                                                            const prevRank = seriesPrev[overallIdx] ?? null;
+                                                                            const currRank = seriesCurr[overallIdx] ?? null;
+                                                                            overallIdx++;
+                                                                            const rankValues = [prevRank, currRank].filter(
+                                                                                (rank): rank is number => typeof rank === "number"
+                                                                            );
+                                                                            const isRankB =
+                                                                                rankValues.length > 0 && rankValues.every((rank) => rank === 1);
+                                                                            const yellowBgClass = isRankB ? "bg-[#FFE78E]" : "";
+
+                                                                            return (
+                                                                                <tr key={`${cat.name}-${it.id}-${cp.code}`} className="border-b">
+                                                                                    {!catRendered && (
+                                                                                        <td className="border border-[#d4d4d4] bg-[#eef7f8] text-slate-700 px-3 py-2 text-center align-top" rowSpan={catRowSpan}>
+                                                                                            {cat.name}
+                                                                                        </td>
+                                                                                    )}
+                                                                                    {!idx && (
+                                                                                        <td className="border border-[#d4d4d4] px-3 py-2 align-top" rowSpan={itemRowSpan}>
+                                                                                            {`${it.id}. ${it.title}`}
+                                                                                        </td>
+                                                                                    )}
+                                                                                    {!idx && (
+                                                                                        <td
+                                                                                            className="border border-[#d4d4d4] px-3 py-2 text-center align-top"
+                                                                                            rowSpan={itemRowSpan}
+                                                                                        >
+                                                                                            {it.required ? "★" : ""}
+                                                                                        </td>
+                                                                                    )}
+                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center w-14 ${yellowBgClass}`}>{cp.code}</td>
+                                                                                    <td className={`border border-[#d4d4d4] px-3 py-2 ${yellowBgClass}`}>{cp.label}</td>
+                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{points}</td>
+                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{arrowFrom(avgComp)}</td>
+                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{avgScore || 0}</td>
+                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{curScore || 0}</td>
+                                                                                    <td
+                                                                                        colSpan={4}
+                                                                                        className="border border-[#d4d4d4] bg-white px-2 py-2 align-top"
+                                                                                    >
+                                                                                        {renderEvaluationGraph(prevRank, currRank)}
+                                                                                    </td>
+
+                                                                                    {(catRendered = true) && null}
+                                                                                </tr>
+                                                                            );
+                                                                        });
+                                                                    });
+                                                                });
+                                                            })()}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </>
                                         );
                                     })()}
                                 </Card>
-
-                                <Card>
-                                    <div className="w-full">
-                                        <table className="w-full border-collapse text-sm text-slate-700">
-                                            <thead>
-                                                <tr>
-                                                    <th rowSpan={2} className="w-24 bg-[#6ebec7] text-white border border-[#d4d4d4] px-3 py-2 text-center text-white">カテゴリー</th>
-                                                    <th rowSpan={2} className="w-44 bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">評価項目</th>
-                                                    <th rowSpan={2} className="w-12 bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">必須</th>
-                                                    <th colSpan={2} className="bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">チェックポイント</th>
-                                                    <th rowSpan={2} className="w-12 bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">配点</th>
-                                                    <th colSpan={2} className="w-24 bg-[#6ebec7] text-white border border-[#d4d4d4] px-3 py-2 text-center">平均</th>
-                                                    <th colSpan={1} className="w-24 bg-[#fb9793] text-white border border-[#d4d4d4] px-3 py-2 text-center">今回</th>
-                                                    <th colSpan={4} className="w-40 bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">評価グラフ</th>
-                                                </tr>
-                                                <tr>
-                                                    <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white">番号</th>
-                                                    <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white">内容</th>
-                                                    <th className="bg-[#8eced4] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">比較</th>
-                                                    <th className="bg-[#8eced4] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">スコア</th>
-                                                    <th className="bg-[#ffb3ae] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">スコア</th>
-                                                    <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white">B</th>
-                                                    <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white">A</th>
-                                                    <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white ">AA</th>
-                                                    <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white">AAA</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {(() => {
-
-                                                    const ensureMapCare = (m: any): Record<string, any> => {
-                                                        if (!m) return {};
-                                                        if (typeof m === "string") {
-                                                            try {
-                                                                const parsed = JSON.parse(m);
-                                                                return parsed && typeof parsed === "object" ? parsed : {};
-                                                            } catch {
-                                                                return {};
-                                                            }
-                                                        }
-                                                        return typeof m === "object" ? (m as Record<string, any>) : {};
-                                                    };
-                                                    let currentBlob = ensureMapCare(careScoreCurrentData);
-                                                    let previousBlob = ensureMapCare(careScorePreviousData);
-                                                    const isEmpty = (m: Record<string, any>) => !m || Object.keys(m).length === 0;
-                                                    if (isEmpty(currentBlob) && careEvaluationGraph && Object.keys(careEvaluationGraph).length) {
-                                                        currentBlob = careEvaluationGraph as Record<string, any>;
-                                                    }
-                                                    if (isEmpty(previousBlob)) {
-                                                        if (careEvaluationGraphPrevious && Object.keys(careEvaluationGraphPrevious).length) {
-                                                            previousBlob = careEvaluationGraphPrevious as Record<string, any>;
-                                                        } else {
-                                                            previousBlob = {} as Record<string, any>;
-                                                        }
-                                                    }
-                                                    const normalizeKey = (s: string) =>
-                                                        (typeof s === "string" ? s : String(s))
-                                                            .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0))
-                                                            .replace(/[‐‑–—−ーｰ－]/g, "-")
-                                                            .replace(/[［］【】\[\]\(\)\s\u3000]/g, "");
-
-                                                    const getScore = (map: Record<string, any>, code: string, label: string) => {
-                                                        if (!map || Object.keys(map).length === 0) return 0;
-                                                        const nCode = normalizeKey(code || "");
-                                                        const nCodeA = normalizeKey(`[ケア] ${code}`);
-                                                        const nCodeB = normalizeKey(`ケア${code}`);
-                                                        const nLabel = normalizeKey(label || "");
-
-                                                        for (const [rawKey, rawVal] of Object.entries(map)) {
-                                                            const nk = normalizeKey(rawKey);
-                                                            if (
-                                                                (nCode && nk.includes(nCode)) ||
-                                                                (nCodeA && nk.includes(nCodeA)) ||
-                                                                (nCodeB && nk.includes(nCodeB)) ||
-                                                                (nLabel && nk.includes(nLabel))
-                                                            ) {
-                                                                const num = Number(String((rawVal as any) ?? "").replace(/[^\d.-]/g, ""));
-                                                                if (!Number.isNaN(num)) return num;
-                                                            }
-                                                        }
-                                                        return 0;
-                                                    };
-                                                    const ArrowGlyph = ({ dir }: { dir: "up" | "right" | "down" }) => {
-                                                        const color = dir === "up" ? "#1a73e8" : dir === "down" ? "#f44336" : "#2ea44f";
-                                                        const rotation = dir === "right" ? 90 : dir === "down" ? 180 : 0;
-                                                        return (
-                                                            <svg
-                                                                width="30"
-                                                                height="20"
-                                                                viewBox="0 0 24 24"
-                                                                style={{ transform: `rotate(${rotation}deg)` }}
-                                                                aria-hidden="true"
-                                                                focusable="false"
-                                                            >
-                                                                <path d="M10 18v-6H7l5-6 5 6h-3v6h-2z" fill={color} />
-                                                            </svg>
-                                                        );
-                                                    };
-                                                    const arrowFrom = (v?: number | null) => {
-                                                        if (v === 1) return <ArrowGlyph dir="up" />;
-                                                        if (v === 2) return <ArrowGlyph dir="right" />;
-                                                        if (v === 3) return <ArrowGlyph dir="down" />;
-                                                        return <span>—</span>;
-                                                    };
-                                                    const getComp = (map: JsonMap | undefined, code: string, label: string) => {
-                                                        if (!map) return undefined;
-                                                        const nCode = normalizeKey(code || "");
-                                                        const nLabel = normalizeKey(label || "");
-                                                        const entry =
-                                                            Object.entries(map).find(([k]) => {
-                                                                const nk = normalizeKey(k);
-                                                                return (nCode && nk.includes(nCode)) || (nLabel && nk.includes(nLabel));
-                                                            }) || null;
-
-                                                        if (!entry) return undefined;
-                                                        const val = entry[1];
-                                                        // Prefer numeric 1/2/3 if present
-                                                        const n = typeof val === "number" ? val : Number(String(val).replace(/[^\d.-]/g, ""));
-                                                        if (Number.isFinite(n) && n !== 0) return n;
-                                                        // Map arrow glyphs to 1/2/3
-                                                        if (typeof val === "string") {
-                                                            const s = val;
-                                                            if (/[↗↑]/.test(s)) return 1;
-                                                            if (/[→➡]/.test(s)) return 2;
-                                                            if (/[↘↓]/.test(s)) return 3;
-                                                        }
-                                                        return undefined;
-                                                    };
-
-                                                    const getEvaluationRank = (map: Record<string, any> | undefined, code: string, label: string): number | null => {
-                                                        return extractRankValue(map, code, label);
-                                                    };
-
-                                                    const renderEvaluationGraph = (prevRank: number | null, currRank: number | null) => {
-                                                        if (!prevRank && !currRank) {
-                                                            return (
-                                                                <div className="flex h-7 items-center justify-center text-[10px] text-slate-300">
-                                                                    —
-                                                                </div>
-                                                            );
-                                                        }
-
-                                                        const rankToWidth = (rank: number) => `${Math.max(0, Math.min(4, rank)) * 25}%`;
-                                                        return (
-                                                            <div className="relative h-7 rounded bg-[#f8fbfd]">
-                                                                <div className="absolute inset-0 grid grid-cols-4">
-                                                                    <div className="border-r border-dashed border-[#d8e4ec]" />
-                                                                    <div className="border-r border-dashed border-[#d8e4ec]" />
-                                                                    <div className="border-r border-dashed border-[#d8e4ec]" />
-                                                                    <div />
-                                                                </div>
-                                                                <div className="absolute inset-x-[6px] inset-y-0">
-                                                                    {prevRank && (
-                                                                        <div
-                                                                            className="absolute left-0 top-[28%] h-[4px] rounded-full bg-[#3D80B8]"
-                                                                            style={{ width: rankToWidth(prevRank) }}
-                                                                        />
-                                                                    )}
-                                                                    {currRank && (
-                                                                        <div
-                                                                            className="absolute left-0 bottom-[28%] h-[4px] rounded-full bg-[#F24822]"
-                                                                            style={{ width: rankToWidth(currRank) }}
-                                                                        />
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    };
-
-                                                    const buildSeqPuller = (map: Record<string, any> | undefined) => {
-                                                        const toCompNum = (v: any) => {
-                                                            if (typeof v === "number") return v;
-                                                            const s = String(v ?? "");
-                                                            if (/[↗↑]/.test(s)) return 1;
-                                                            if (/[→➡]/.test(s)) return 2;
-                                                            if (/[↘↓]/.test(s)) return 3;
-                                                            const n = Number(s.replace(/[^\d.-]/g, ""));
-                                                            return Number.isFinite(n) ? n : undefined;
-                                                        };
-                                                        // Prefer ordering by checkpoint code "NN-N" when present to align with table rows
-                                                        const entries = Object.entries(map || {});
-                                                        const parsed = entries.map(([k, v]) => {
-                                                            const nk = normalizeKey(k);
-                                                            const m = nk.match(/(\d{1,2})-(\d{1,2})/);
-                                                            const keyOrder = m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : [999, 999];
-                                                            return { keyOrder, num: toCompNum(v) };
-                                                        });
-                                                        parsed.sort((a, b) => (a.keyOrder[0] - b.keyOrder[0]) || (a.keyOrder[1] - b.keyOrder[1]));
-                                                        const nums = parsed.map(p => p.num).filter((v) => v !== undefined) as number[];
-                                                        let idx = 0;
-                                                        return () => (idx < nums.length ? nums[idx++] : undefined);
-                                                    };
-                                                    const nextAvgComp = buildSeqPuller(careComparisonAverageData as any);
-
-                                                    const avgCompMap = ensureMapCare(careComparisonAverageData);
-                                                    const prevCompMap = ensureMapCare(careComparisonPreviousData);
-                                                    const evalCurrentMap = ensureMapCare(careEvaluationGraph);
-                                                    const evalPreviousMap = ensureMapCare(careEvaluationGraphPrevious);
-
-                                                    const seriesPrev = extractCareRankSeries(evalPreviousMap);
-                                                    const seriesCurr = extractCareRankSeries(evalCurrentMap);
-                                                    let overallIdx = 0;
-
-                                                    return CARE_EVALUATION_MASTER.flatMap((cat) => {
-
-                                                        const catRowSpan = cat.items.reduce((s, it) => s + it.checkpoints.length, 0);
-                                                        let catRendered = false;
-
-                                                        return cat.items.flatMap((it) => {
-                                                            const itemRowSpan = it.checkpoints.length;
-                                                            return it.checkpoints.map((cp, idx) => {
-                                                                const points = cp.points ?? 10;
-                                                                const avgComp = getComp(avgCompMap, cp.code, cp.label) ?? nextAvgComp();
-                                                                const avgScore = getScore(previousBlob, cp.code, cp.label);
-                                                                const curScore = getScore(currentBlob, cp.code, cp.label);
-                                                                const prevRank = seriesPrev[overallIdx] ?? null;
-                                                                const currRank = seriesCurr[overallIdx] ?? null;
-                                                                overallIdx++;
-
-                                                                return (
-                                                                    <tr key={`${cat.name}-${it.id}-${cp.code}`} className="border-b">
-                                                                        {!catRendered && (
-                                                                            <td className="border border-[#d4d4d4] bg-[#eef7f8] text-slate-700 px-3 py-2 text-center align-top" rowSpan={catRowSpan}>
-                                                                                {cat.name}
-                                                                            </td>
-                                                                        )}
-                                                                        {!idx && (
-                                                                            <td className="border border-[#d4d4d4] px-3 py-2 align-top" rowSpan={itemRowSpan}>
-                                                                                {`${it.id}. ${it.title}`}
-                                                                            </td>
-                                                                        )}
-                                                                        {!idx && (
-                                                                            <td className="border border-[#d4d4d4] px-3 py-2 text-center align-top" rowSpan={itemRowSpan}>
-                                                                                {it.required ? "★" : ""}
-                                                                            </td>
-                                                                        )}
-                                                                        <td className="border border-[#d4d4d4] px-2 py-2 text-center w-14">{cp.code}</td>
-                                                                        <td className="border border-[#d4d4d4] px-3 py-2">{cp.label}</td>
-                                                                        <td className="border border-[#d4d4d4] px-2 py-2 text-center">{points}</td>
-                                                                        <td className="border border-[#d4d4d4] px-2 py-2 text-center">{arrowFrom(avgComp)}</td>
-                                                                        <td className="border border-[#d4d4d4] px-2 py-2 text-center">{avgScore || 0}</td>
-                                                                        <td className="border border-[#d4d4d4] px-2 py-2 text-center">{curScore || 0}</td>
-                                                                        <td
-                                                                            colSpan={4}
-                                                                            className="border border-[#d4d4d4] bg-white px-2 py-2 align-top"
-                                                                        >
-                                                                            {renderEvaluationGraph(prevRank, currRank)}
-                                                                        </td>
-
-                                                                        {(catRendered = true) && null}
-                                                                    </tr>
-                                                                );
-                                                            });
-                                                        });
-                                                    });
-                                                })()}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </Card>
-
-                                <Card className="mt-4">
+                                <Card id="pdf-onecolor-detail" className="mt-4">
                                     {(() => {
                                         const hasKeys = (map?: JsonMap): map is JsonMap =>
                                             !!map && typeof map === "object" && Object.keys(map).length > 0;
@@ -2769,17 +2870,19 @@ export default function CustomerDetail() {
                                                         </div>
                                                     </div>
                                                 </div>
+
                                             </>
                                         );
                                     })()}
+                                </Card>
+                                <div id="pdf-care-rank-standard">
                                     <EvaluationRankStandardTable />
-
-                                </Card >
+                                </div>
                             </TabsContent>
 
-                            {/* One Color tab - table with 全国平均 / 前回 / 今回 blocks */}
-                            <TabsContent value="onecolor" className="mt-3">
-                                <Card>
+
+                            <TabsContent value="onecolor">
+                                <Card id="pdf-onecolor-summary">
                                     {(() => {
                                         const denom = 610;
                                         const avgScore = (prevOneColorTotal || prevOneColorTotalFromBlob || 0) as number;
@@ -2822,11 +2925,11 @@ export default function CustomerDetail() {
                                                         </td>
                                                         {/* 前回 */}
                                                         <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#eef3f8]">
-                                                            {/* <span className="font-semibold text-[#3d7fb6]">{prevOnlyRank}</span> */}
+                                                            <span className="font-semibold text-[#3d7fb6]">{prevOnlyRank}</span>
                                                         </td>
                                                         <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#eef3f8]">
-                                                            {/* <span className="font-semibold text-[#3d7fb6]">{prevOnlyScore}</span>{" "}
-                                                            <span className="text-slate-400">/ {denom}</span> */}
+                                                            <span className="font-semibold text-[#3d7fb6]">{prevOnlyScore}</span>{" "}
+                                                            <span className="text-slate-400">/ {denom}</span>
                                                         </td>
                                                         {/* 今回 */}
                                                         <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#fff7f7]">
@@ -2842,7 +2945,7 @@ export default function CustomerDetail() {
                                         );
                                     })()}
                                 </Card>
-                                <Card className="mt-4">
+                                <Card id="pdf-onecolor-detail" className="mt-4">
                                     {(() => {
                                         const MASTER = ONE_COLOR_MASTER;
                                         const ONE_COLOR_AVG_FALLBACK_SEQ: number[] = [
@@ -2946,8 +3049,7 @@ export default function CustomerDetail() {
                                         const renderEvaluationGraph = (prevRank: number | null, currRank: number | null) => {
                                             if (!prevRank && !currRank) {
                                                 return (
-                                                    <div className="flex h-7 items-center justify-center text-[10px] text-slate-300">
-                                                        —
+                                                    <div className="flex h-4 items-center justify-center rounded bg-[#fce2de] text-[10px] font-medium text-[#a8b0bb]">
                                                     </div>
                                                 );
                                             }
@@ -3001,7 +3103,7 @@ export default function CustomerDetail() {
                                                         <th className="bg-[#a9c4da] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">比較</th>
                                                         <th className="bg-[#a9c4da] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">スコア</th>
                                                         <th className="bg-[#ffb3ae] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">スコア</th>
-                                                        <th className="bg-[#6ebec7] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">B</th>
+                                                        <th className="bg-[#FFE78E] text-[#4FB1BC] border border-[#d4d4d4] px-2 py-1 text-center text-xs">B</th>
                                                         <th className="bg-[#6ebec7] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">A</th>
                                                         <th className="bg-[#6ebec7] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">AA</th>
                                                         <th className="bg-[#6ebec7] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">AAA</th>
@@ -3043,6 +3145,12 @@ export default function CustomerDetail() {
                                                                     const curScore = getScore(currentBlob, cp.code, cp.label);
                                                                     const prevRank = getEvaluationRank(evalPreviousMap, cp.code, cp.label);
                                                                     const currRank = getEvaluationRank(evalCurrentMap, cp.code, cp.label);
+                                                                    const rankValues = [prevRank, currRank].filter(
+                                                                        (rank): rank is number => typeof rank === "number"
+                                                                    );
+                                                                    const isRankB =
+                                                                        rankValues.length > 0 && rankValues.every((rank) => rank === 1);
+                                                                    const yellowBgClass = isRankB ? "bg-[#FFE78E]" : "";
 
                                                                     return (
                                                                         <tr key={`${cat.name}-${it.id}-${cp.code}`}>
@@ -3057,21 +3165,24 @@ export default function CustomerDetail() {
                                                                                 </td>
                                                                             )}
                                                                             {!idx && (
-                                                                                <td className="border border-[#d4d4d4] px-3 py-2 text-center align-top" rowSpan={itemRowSpan}>
+                                                                                <td
+                                                                                    className="border border-[#d4d4d4] px-3 py-2 text-center align-top"
+                                                                                    rowSpan={itemRowSpan}
+                                                                                >
                                                                                     {it.required ? "★" : ""}
                                                                                 </td>
                                                                             )}
-                                                                            <td className="border border-[#d4d4d4] px-2 py-2 text-center">{cp.code}</td>
-                                                                            <td className={`border border-[#d4d4d4] px-3 py-2 ${cp.highlight ? "bg-[#ffefc2]" : ""}`}>{cp.label}</td>
-                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center font-semibold ${cp.highlight ? "bg-[#ffefc2]" : ""}`}>{points}</td>
+                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{cp.code}</td>
+                                                                            <td className={`border border-[#d4d4d4] px-3 py-2 ${cp.highlight ? "bg-[#ffefc2]" : yellowBgClass}`}>{cp.label}</td>
+                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center font-semibold ${cp.highlight ? "bg-[#ffefc2]" : yellowBgClass}`}>{points}</td>
                                                                             {/* 平均：比較は JO〜LA、スコアは空欄 */}
-                                                                            <td className="border border-[#d4d4d4] px-2 py-2 text-center">{compToArrow(avgComparison)}</td>
-                                                                            <td className="border border-[#d4d4d4] px-2 py-2 text-center text-slate-400"> </td>
+                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{compToArrow(avgComparison)}</td>
+                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center text-slate-400 ${yellowBgClass}`}> </td>
                                                                             {/* 前回：比較 OB〜PN、スコア LC〜MN */}
-                                                                            <td className="border border-[#d4d4d4] px-2 py-2 text-center">{compToArrow(prevComparison)}</td>
-                                                                            <td className="border border-[#d4d4d4] px-2 py-2 text-center">{prevScore || 0}</td>
+                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{compToArrow(prevComparison)}</td>
+                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{prevScore || 0}</td>
                                                                             {/* 今回：スコア GO〜IA */}
-                                                                            <td className="border border-[#d4d4d4] px-2 py-2 text-center text-[#e94444] font-semibold">{curScore || 0}</td>
+                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center text-[#e94444] font-semibold ${yellowBgClass}`}>{curScore || 0}</td>
                                                                             <td colSpan={4} className="border border-[#d4d4d4] px-1 py-1 align-middle">
                                                                                 {renderEvaluationGraph(prevRank, currRank)}
                                                                             </td>
@@ -3275,14 +3386,15 @@ export default function CustomerDetail() {
                                         );
 
                                     })()}
-                                    <EvaluationRankStandardTable />
-
                                 </Card>
+                                <div id="pdf-onecolor-rank-standard">
+                                    <EvaluationRankStandardTable />
+                                </div>
                             </TabsContent>
 
-                            <TabsContent value="time" className="mt-3">
+                            <TabsContent value="time">
 
-                                <Card>
+                                <Card id="pdf-time-card">
                                     {(() => {
                                         const denom = 300;
                                         const avgScore = (prevTimeTotal || prevTimeTotalFromBlob || 0) as number;
@@ -3337,11 +3449,17 @@ export default function CustomerDetail() {
                                                             </td>
 
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#eef3f8]">
-                                                                {/* <span className="font-semibold text-[#3d7fb6]">{prevOnlyRank}</span> */}
+                                                                <span className="font-semibold text-[#3d7fb6]">{prevOnlyRank}</span>
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#eef3f8]">
+                                                                <span className="font-semibold text-[#138495]">{avgScore}</span>{" "}
+                                                                <span className="text-slate-400">/ {denom}</span>
+                                                                <div className="mt-2 pt-2 border-t border-[#dddddd] text-[#138495] font-bold">
+                                                                    {prevTimeDisplay}
+                                                                </div>
+
                                                                 {/* <span className="font-semibold text-[#3d7fb6]">{prevOnlyScore}</span>{" "}
-                                                            <span className="text-slate-400">/ {denom}</span> */}
+                                                                <span className="text-slate-400">/ {denom}</span> */}
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#fff7f7]">
                                                                 <span className="font-semibold text-[#e94444]">{curRank}</span>
@@ -3371,8 +3489,7 @@ export default function CustomerDetail() {
 
                                     })()}
                                 </Card>
-
-                                <Card className="mt-4">
+                                <Card id="pdf-time-radar-card" className="mt-4">
                                     <TimeRadar
                                         avgData={avgData as Record<string, any> | undefined}
                                         nationalFallback={timePreviousScore}

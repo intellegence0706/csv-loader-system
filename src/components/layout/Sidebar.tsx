@@ -65,17 +65,15 @@ const Sidebar = () => {
                 key={item.path}
                 to={item.path}
                 onClick={() => setOpen(false)} // close on mobile tap
-                className={`flex items-center space-x-2 px-4 py-2 text-sm transition-all
-                  ${
-                    isActive
-                      ? "bg-white text-[#0b7a7a] rounded-full shadow-sm"
-                      : "text-white/90 hover:text-white"
+                className={`flex items-center space-x-2 px-4 py-4 text-sm transition-all
+                  ${isActive
+                    ? "bg-white text-[#0b7a7a] rounded-full shadow-sm"
+                    : "text-white/90 hover:text-white"
                   }`}
               >
                 <Icon
-                  className={`w-4 h-4 ${
-                    isActive ? "text-[#0b7a7a]" : "text-white/90"
-                  }`}
+                  className={`w-4 h-4 ${isActive ? "text-[#0b7a7a]" : "text-white/90"
+                    }`}
                 />
                 <span className="font-medium">{item.label}</span>
               </Link>
@@ -83,9 +81,9 @@ const Sidebar = () => {
           })}
         </nav>
 
-      
+
         <div className="border-t border-white/40 px-5 py-6 space-y-5">
-         
+
           <div className="flex items-center space-x-3 text-white/90">
             <UserCircle2 className="w-6 h-6 opacity-90" />
             <div>

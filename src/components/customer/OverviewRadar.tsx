@@ -19,7 +19,8 @@ type StructuredRow = {
 type RadarDatum = {
     name: string;
     "National Average": number;
-    "This Time": number;
+    Previous: number;
+    Current: number;
 };
 
 type OverviewRadarProps = {
@@ -31,9 +32,24 @@ const formatScore = (score?: number | null) => (typeof score === "number" ? scor
 
 export default function OverviewRadar({ radarRows, structuredData }: OverviewRadarProps) {
     return (
-        <div className="mt-6 rounded-md border border-slate-200 overflow-hidden bg-white">
+        <div id="overview-radar-chart" className="mt-6 rounded-md border border-slate-200 overflow-hidden bg-white">
             <div className="h-2 w-full bg-gradient-to-r from-[#e87674] via-white to-[#54b4bd]" />
             <div className="px-4 pt-3 pb-2 text-sm font-medium text-gray-700">グラフの名前</div>
+
+            <div className="mb-3 flex justify-end gap-4 px-4 text-[11px] text-slate-600">
+                <span className="flex items-center gap-2">
+                    <span className="h-2.5 w-8 rounded-full shadow-sm" style={{ backgroundColor: "#64CBD3" }} />
+                    全国平均
+                </span>
+                <span className="flex items-center gap-2">
+                    <span className="h-2.5 w-8 rounded-full shadow-sm" style={{ backgroundColor: "#4075B5" }} />
+                    前回
+                </span>
+                <span className="flex items-center gap-2">
+                    <span className="h-2.5 w-8 rounded-full shadow-sm" style={{ backgroundColor: "#FF6B6B" }} />
+                    今回
+                </span>
+            </div>
 
             <div className="relative h-[600px] w-full pb-16">
                 <ResponsiveContainer width="100%" height="100%">
@@ -45,35 +61,31 @@ export default function OverviewRadar({ radarRows, structuredData }: OverviewRad
                         <Radar
                             name="全国平均"
                             dataKey="National Average"
-                            stroke="#00bcd4"
+                            stroke="#64CBD3"
                             strokeWidth={2}
-                            fill="#00bcd4"
+                            fill="#64CBD3"
                             fillOpacity={0}
-                            dot={{ r: 2, fill: "#00bcd4", stroke: "#00bcd4", strokeWidth: 2 }}
+                            dot={{ r: 2, fill: "#64CBD3", stroke: "#64CBD3", strokeWidth: 2 }}
+                        />
+
+                        <Radar
+                            name="前回"
+                            dataKey="Previous"
+                            stroke="#4075B5"
+                            strokeWidth={2}
+                            fill="#4075B5"
+                            fillOpacity={0.15}
+                            dot={{ r: 2, fill: "#4075B5", stroke: "#4075B5", strokeWidth: 2 }}
                         />
 
                         <Radar
                             name="今回"
-                            dataKey="This Time"
-                            stroke="#ff5252"
+                            dataKey="Current"
+                            stroke="#FF6B6B"
                             strokeWidth={2}
-                            fill="#ff5252"
+                            fill="#FF6B6B"
                             fillOpacity={0.15}
-                            dot={{ r: 2, fill: "#ff5252", stroke: "#ff5252", strokeWidth: 2 }}
-                        />
-
-                        <Legend
-                            verticalAlign="top"
-                            align="right"
-                            wrapperStyle={{ right: 24, top: 12 }}
-                            iconType="line"
-                            formatter={(value) => {
-                                const mapping: Record<string, string> = {
-                                    "National Average": "全国平均",
-                                    "This Time": "今回",
-                                };
-                                return mapping[value] || value;
-                            }}
+                            dot={{ r: 2, fill: "#FF6B6B", stroke: "#FF6B6B", strokeWidth: 2 }}
                         />
                     </RadarChart>
                 </ResponsiveContainer>
@@ -122,13 +134,13 @@ export default function OverviewRadar({ radarRows, structuredData }: OverviewRad
                             <div key={row.key} className="flex flex-wrap items-center justify-between gap-2">
                                 <span className="text-xs font-semibold text-slate-700">{row.key}</span>
                                 <div className="flex flex-wrap items-center gap-3">
-                                    <span className="text-[#00bcd4] font-medium">
+                                    <span className="text-[#64CBD3] font-medium">
                                         全国平均: {formatScore(row.avg?.score)} / {row.denom}
                                     </span>
                                     <span className="text-[#4075B5] font-medium">
                                         前回: {formatScore(row.prev?.score)} / {row.denom}
                                     </span>
-                                    <span className="text-[#ff5252] font-medium">
+                                    <span className="text-[#FF6B6B] font-medium">
                                         今回: {formatScore(row.curr?.score)} / {row.denom}
                                     </span>
                                 </div>

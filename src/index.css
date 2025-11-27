@@ -12,18 +12,18 @@
     --card-foreground: 210 15% 15%;
     --popover: 0 0% 100%;
     --popover-foreground: 210 15% 15%;
-    
+
     /* Pink theme colors */
     --primary: 350 70% 75%;
     --primary-foreground: 0 0% 100%;
     --primary-dark: 350 50% 60%;
     --primary-light: 350 85% 90%;
-    
+
     /* Teal accent colors */
     --secondary: 180 65% 45%;
     --secondary-foreground: 0 0% 100%;
     --secondary-light: 180 50% 85%;
-    
+
     --muted: 210 15% 95%;
     --muted-foreground: 210 15% 40%;
     --accent: 180 65% 45%;
@@ -34,7 +34,7 @@
     --input: 210 15% 88%;
     --ring: 350 70% 75%;
     --radius: 0.5rem;
-    
+
     /* Custom semantic tokens */
     --sidebar-background: 350 70% 75%;
     --sidebar-foreground: 0 0% 100%;
@@ -85,6 +85,7 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
     font-family: 'Noto Sans JP', sans-serif;
