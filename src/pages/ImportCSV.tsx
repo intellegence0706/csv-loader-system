@@ -55,24 +55,41 @@ const ImportCSV: React.FC = () => {
     const toISODate = (s?: string | null) => {
         if (!s) return null;
         const raw = String(s).trim();
+        const normalized = raw
+            .replace(/年|\.|月/g, "/")
+            .replace(/日/g, "")
+            .replace(/-/g, "/")
+            .replace(/\s+/g, " ")
+            .trim();
 
-        const yfirst = raw.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
-        if (yfirst) {
-            const y = yfirst[1];
-            const mm = yfirst[2].padStart(2, "0");
-            const dd = yfirst[3].padStart(2, "0");
-            return `${y}-${mm}-${dd}`;
+        const yFirst = normalized.match(/(\d{4})[\/](\d{1,2})[\/](\d{1,2})/);
+        if (yFirst) {
+            const [, y, m, d] = yFirst;
+            const iso = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+            console.log(`📅 Date parsed (Y-first): "${raw}" -> "${iso}"`);
+            return iso;
         }
-        // MM/DD/YYYY or M/D/YYYY or with dashes
-        const mdy = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+
+        const mdy = normalized.match(/(\d{1,2})[\/](\d{1,2})[\/](\d{4})/);
         if (mdy) {
-            const mm = String(parseInt(mdy[1], 10)).padStart(2, "0");
-            const dd = String(parseInt(mdy[2], 10)).padStart(2, "0");
-            const y = mdy[3];
-            return `${y}-${mm}-${dd}`;
+            const [, m, d, y] = mdy;
+            const iso = `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+            console.log(`📅 Date parsed (M-first): "${raw}" -> "${iso}"`);
+            return iso;
         }
-        const d = new Date(raw);
-        return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+
+        const digitsOnly = normalized.replace(/\D/g, "");
+        if (digitsOnly.length === 8) {
+            const y = digitsOnly.slice(0, 4);
+            const m = digitsOnly.slice(4, 6);
+            const d = digitsOnly.slice(6, 8);
+            const iso = `${y}-${m}-${d}`;
+            console.log(`📅 Date parsed (digits): "${raw}" -> "${iso}"`);
+            return iso;
+        }
+
+        console.warn(`⚠️ Date parse failed: "${raw}"`);
+        return null;
     };
     // Guarantee NOT NULL assessment_date by defaulting to today when parsing fails
     const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -95,6 +112,45 @@ const ImportCSV: React.FC = () => {
         const s = String(v ?? "");
         const m = s.match(/(\d+)/);
         return m ? parseInt(m[1], 10) : 0;
+    };
+
+    const normalizeTrendValue = (value: any): 1 | 2 | 3 | null => {
+        if (value === null || value === undefined) return null;
+        const normalized = toHalfWidthDigits(String(value).trim());
+        if (!normalized || normalized === "0") return null;
+
+        if (/^(?:1|↑|↗|⇑|▲)$/u.test(normalized)) return 1;
+        if (/^(?:2|→|➡|⇨|⇒)$/u.test(normalized)) return 2;
+        if (/^(?:3|↓|↘|⇓|▼)$/u.test(normalized)) return 3;
+        return null;
+    };
+
+    const sanitizeTrendBlock = (block?: Record<string, any>) => {
+        const cleaned: Record<string, string | null> = {};
+        if (!block) return cleaned;
+        Object.entries(block).forEach(([key, value]) => {
+            const trend = normalizeTrendValue(value);
+            const normalizedKey = toHalfWidthDigits(key)
+                .replace(/[［］【】\[\]\(\)\s\u3000]/g, "")
+                .replace(/[‐‑–—−ーｰ－]/g, "-");
+            const codeMatch = normalizedKey.match(/(\d{1,2}-\d{1,2})/);
+
+            if (trend !== null) {
+                const asString = String(trend);
+                cleaned[key] = asString;
+                if (codeMatch) {
+                    cleaned[codeMatch[1]] = asString;
+                }
+            } else {
+                if (!(key in cleaned)) {
+                    cleaned[key] = null;
+                }
+                if (codeMatch) {
+                    cleaned[codeMatch[1]] = null;
+                }
+            }
+        });
+        return cleaned;
     };
     const deriveTimeFromMap = (obj?: Record<string, any>) => {
         let mm = 0, ss = 0;
@@ -141,13 +197,11 @@ const ImportCSV: React.FC = () => {
                 const existingVal = obj["総合計タイム"];
                 let merged = "";
                 if (/^\d+$/.test(existingVal) && /^\d+$/.test(val)) {
-                    // Both are plain numbers: minutes and seconds
                     merged = `${existingVal}分${String(val).padStart(2, "0")}秒`;
                 } else {
                     // At least one has 分/秒, use combineTimeTokens
                     merged = combineTimeTokens(existingVal, val);
                 }
-                console.log(`🔥 MERGED: "${merged}"`);
                 if (merged) {
                     obj["総合計タイム"] = merged;
                     console.log(`🔥 STORED: obj["総合計タイム"] = "${obj["総合計タイム"]}"`);
@@ -280,14 +334,14 @@ const ImportCSV: React.FC = () => {
         });
 
         // 7) A1-range helper
-        const range = (start: string, end: string) => {
+        const range = (start: string, end: string, includeEmpty = false) => {
             const s = excelToIndex(start);
             const e = excelToIndex(end);
             const obj: Record<string, string> = {};
             for (let c = s; c <= e; c++) {
                 const k = lowestHeaderAt(c);
                 const v = normalize(data[c] || "");
-                if (k && v !== "") setSmart(obj, k, v);
+                if (k && (includeEmpty || v !== "")) setSmart(obj, k, v);
             }
             return obj;
         };
@@ -316,8 +370,10 @@ const ImportCSV: React.FC = () => {
             const careEvalGraphPrevious = range("EG", "FF");
 
             // Care comparison table: CG4 to DF4 (average) and FG4 to GF4 (final)
-            const careComparisonAverage = range("CG", "DF");
-            const careComparisonFinal = range("FG", "GF");
+            const rawCareComparisonAverage = range("CG", "DF", true);
+            const rawCareComparisonFinal = range("FG", "GF", true);
+            const careComparisonAverage = sanitizeTrendBlock(rawCareComparisonAverage);
+            const careComparisonFinal = sanitizeTrendBlock(rawCareComparisonFinal);
 
             // Care radar chart table: GG4 to GJ4 (current) and GK4 to GN4 (previous)
             const careRadarChartCurrent = range("GG", "GJ");
@@ -331,8 +387,11 @@ const ImportCSV: React.FC = () => {
             const oneColorEvalGraphCurrent = range("IB", "JN");
             const oneColorEvalGraphFinal = range("MO", "OA");
 
-            // Final one color comparison table: OB4 to PN4
-            const finalOneColorComparison = range("OB", "PN");
+            // One color comparison tables: JO-LA (平均) / OB-PN (前回)
+            const rawOneColorComparisonAverage = range("JO", "LA", true);
+            const rawOneColorComparisonPrevious = range("OB", "PN", true);
+            const oneColorComparisonAverage = sanitizeTrendBlock(rawOneColorComparisonAverage);
+            const oneColorComparisonPrevious = sanitizeTrendBlock(rawOneColorComparisonPrevious);
 
             // One color radar chart table: PO4 to PR4 (current) and PS4 to PV4 (previous)
             const oneColorRadarChartCurrent = range("PO", "PR");
@@ -346,9 +405,11 @@ const ImportCSV: React.FC = () => {
             const timeEvalGraphCurrent = range("QO", "QV");
             const timeEvalGraphFinal = range("RU", "SB");
 
-            // Time comparison tables: QW4 to RD4 (average) and SC4 to SJ4 (previous)
-            const timeComparisonAverage = range("QW", "RD");
-            const timeComparisonPrevious = range("SC", "SJ");
+            // Time comparison tables: QW4 to RD4 (平均) and SC4 to SJ4 (前回)
+            const rawTimeComparisonAverage = range("QW", "RD", true);
+            const rawTimeComparisonPrevious = range("SC", "SJ", true);
+            const timeComparisonAverage = sanitizeTrendBlock(rawTimeComparisonAverage);
+            const timeComparisonPrevious = sanitizeTrendBlock(rawTimeComparisonPrevious);
 
             // Time radar chart table: SK4 to SP4 (current) and SQ4 to SV4 (final)
             const timeRadarChartCurrent = range("SK", "SP");
@@ -391,8 +452,9 @@ const ImportCSV: React.FC = () => {
                     current: oneColorEvalGraphCurrent,
                     final: oneColorEvalGraphFinal,
                 },
-                final_one_color_comparison: {
-                    final: finalOneColorComparison,
+                one_color_comparison: {
+                    average: oneColorComparisonAverage,
+                    previous: oneColorComparisonPrevious,
                 },
                 one_color_radar_chart: {
                     current: oneColorRadarChartCurrent,
@@ -580,6 +642,8 @@ const ImportCSV: React.FC = () => {
 
             const prevSynth = synthesizePrevFromStructured(structured);
 
+            const parsedAssessmentDate = ensureISODate(mergedCustomerInfo["採点日"] || raw.assessment_date);
+
             // 1) Upsert customer
             const custPayload = {
                 external_id: raw.external_id,
@@ -595,7 +659,8 @@ const ImportCSV: React.FC = () => {
                 salon_monthly_customers: toInt(raw.salon_monthly_customers),
                 blank_period: raw.blank_period,
                 status: mapStatus(raw.status),
-                application_date: toISODate(raw.application_date),
+                // UI currently treats application_date as 採点日, so keep them in sync
+                application_date: parsedAssessmentDate,
             };
 
             const { data: customer, error: customerError } = await supabase
@@ -634,9 +699,14 @@ const ImportCSV: React.FC = () => {
             const oneColorDetails = Object.entries(structured).find(([k]) => k.includes("ワンカラー"))?.[1] || {};
             const timeDetails = Object.entries(structured).find(([k]) => k.includes("タイム"))?.[1] || {};
 
+            console.log("🔍 Debug assessment_date:", {
+                "mergedCustomerInfo['採点日']": mergedCustomerInfo["採点日"],
+                "raw.assessment_date": raw.assessment_date,
+                parsedAssessmentDate,
+            });
             const assessmentData = {
                 customer_id: customerId,
-                assessment_date: ensureISODate(mergedCustomerInfo["採点日"] || raw.assessment_date),
+                assessment_date: parsedAssessmentDate,
                 care_score: toInt(currentGroup["ケア スコア"] || currentGroup["ケアスコア"] || currentGroup["ケア"]),
                 care_rating: currentGroup["ケア評価"] || currentGroup["ケア 評価"] || currentGroup["ケアランク"] || "",
                 one_color_score: toInt(currentGroup["ワンカラー スコア"] || currentGroup["ワンカラースコア"] || currentGroup["ワンカラー"]),
@@ -999,15 +1069,24 @@ const ImportCSV: React.FC = () => {
                     if (error) console.warn("one_color_evaluation_graph final insert warn:", error);
                 }
 
-                // Final one color comparison table
-                if (Object.keys(tableData.final_one_color_comparison.final).length > 0) {
+                // One color comparison tables
+                if (Object.keys(tableData.one_color_comparison.average).length > 0) {
                     const { error } = await supabase.from("section_blobs").insert({
-                        customer_id: customerId, assessment_id: assessmentId, section: "final_one_color_comparison",
-                        subtype: "final",
-                        data: tableData.final_one_color_comparison.final,
+                        customer_id: customerId, assessment_id: assessmentId, section: "one_color_comparison",
+                        subtype: "average",
+                        data: tableData.one_color_comparison.average,
                         source: "csv_import",
                     });
-                    if (error) console.warn("final_one_color_comparison final insert warn:", error);
+                    if (error) console.warn("one_color_comparison average insert warn:", error);
+                }
+                if (Object.keys(tableData.one_color_comparison.previous).length > 0) {
+                    const { error } = await supabase.from("section_blobs").insert({
+                        customer_id: customerId, assessment_id: assessmentId, section: "one_color_comparison",
+                        subtype: "previous",
+                        data: tableData.one_color_comparison.previous,
+                        source: "csv_import",
+                    });
+                    if (error) console.warn("one_color_comparison previous insert warn:", error);
                 }
 
                 // One color radar chart table
@@ -1146,7 +1225,7 @@ const ImportCSV: React.FC = () => {
                 "care_radar_chart",
                 "one_color_score",
                 "one_color_evaluation_graph",
-                "final_one_color_comparison",
+                "one_color_comparison",
                 "one_color_radar_chart",
                 "time_both_hand",
                 "time_evaluation_graph",
@@ -1299,21 +1378,23 @@ const ImportCSV: React.FC = () => {
                 return finalHeader[col] || `col_${col + 1}`;
             };
 
-            const rangeForRow = (data: string[]) => (start: string, end: string) => {
-                const s = excelToIndex(start);
-                const e = excelToIndex(end);
-                const obj: Record<string, string> = {};
-                for (let c = s; c <= e; c++) {
-                    const k = lowestHeaderAt(c);
-                    const v = normalize(data[c] || "");
-                    // Debug columns 20-21 (U-V)
-                    if (c === 20 || c === 21) {
-                        console.log(`📍 Col ${c}: raw="${data[c]}", normalized="${v}", header="${k}"`);
-                    }
-                    if (k && v !== "") setSmart(obj, k, v);
-                }
-                return obj;
-            };
+            const rangeForRow =
+                (data: string[]) =>
+                    (start: string, end: string, includeEmpty = false) => {
+                        const s = excelToIndex(start);
+                        const e = excelToIndex(end);
+                        const obj: Record<string, string> = {};
+                        for (let c = s; c <= e; c++) {
+                            const k = lowestHeaderAt(c);
+                            const v = normalize(data[c] || "");
+                            // Debug columns 20-21 (U-V)
+                            if (c === 20 || c === 21) {
+                                console.log(`📍 Col ${c}: raw="${data[c]}", normalized="${v}", header="${k}"`);
+                            }
+                            if (k && (includeEmpty || v !== "")) setSmart(obj, k, v);
+                        }
+                        return obj;
+                    };
 
             const buildStructuredForRow = (data: string[]) => {
                 const structured: Record<string, Record<string, string>> = {};
@@ -1346,8 +1427,10 @@ const ImportCSV: React.FC = () => {
                 const careEvalGraphCurrent = range("BG", "CF");
                 const careEvalGraphPrevious = range("EG", "FF");
 
-                const careComparisonAverage = range("CG", "DF");
-                const careComparisonFinal = range("FG", "GF");
+                const rawCareComparisonAverage = range("CG", "DF", true);
+                const rawCareComparisonFinal = range("FG", "GF", true);
+                const careComparisonAverage = sanitizeTrendBlock(rawCareComparisonAverage);
+                const careComparisonFinal = sanitizeTrendBlock(rawCareComparisonFinal);
 
                 const careRadarChartCurrent = range("GG", "GJ");
                 const careRadarChartPrevious = range("GK", "GN");
@@ -1358,7 +1441,8 @@ const ImportCSV: React.FC = () => {
                 const oneColorEvalGraphCurrent = range("IB", "JN");
                 const oneColorEvalGraphFinal = range("MO", "OA");
 
-                const finalOneColorComparison = range("OB", "PN");
+                const oneColorComparisonAverage = range("JO", "LA");
+                const oneColorComparisonPrevious = range("OB", "PN");
 
                 const oneColorRadarChartCurrent = range("PO", "PR");
                 const oneColorRadarChartPrevious = range("PS", "PV");
@@ -1369,8 +1453,10 @@ const ImportCSV: React.FC = () => {
                 const timeEvalGraphCurrent = range("QO", "QV");
                 const timeEvalGraphFinal = range("RU", "SB");
 
-                const timeComparisonAverage = range("QW", "RD");
-                const timeComparisonPrevious = range("SC", "SJ");
+                const rawTimeComparisonAverage = range("QW", "RD", true);
+                const rawTimeComparisonPrevious = range("SC", "SJ", true);
+                const timeComparisonAverage = sanitizeTrendBlock(rawTimeComparisonAverage);
+                const timeComparisonPrevious = sanitizeTrendBlock(rawTimeComparisonPrevious);
 
                 const timeRadarChartCurrent = range("SK", "SP");
                 const timeRadarChartFinal = range("SQ", "SV");
@@ -1387,7 +1473,7 @@ const ImportCSV: React.FC = () => {
                     care_radar_chart: { current: careRadarChartCurrent, previous: careRadarChartPrevious },
                     one_color_score: { current: oneColorScoreCurrent, final: oneColorScoreFinal },
                     one_color_evaluation_graph: { current: oneColorEvalGraphCurrent, final: oneColorEvalGraphFinal },
-                    final_one_color_comparison: { final: finalOneColorComparison },
+                    one_color_comparison: { average: oneColorComparisonAverage, previous: oneColorComparisonPrevious },
                     one_color_radar_chart: { current: oneColorRadarChartCurrent, previous: oneColorRadarChartPrevious },
                     time_both_hand: { current: timeBothHandCurrent, final: timeBothHandFinal },
                     time_evaluation_graph: { current: timeEvalGraphCurrent, final: timeEvalGraphFinal },
@@ -1477,6 +1563,8 @@ const ImportCSV: React.FC = () => {
                     continue;
                 }
 
+                const parsedAssessmentDate = ensureISODate(rawCustomer.assessment_date);
+
                 const custPayload = {
                     external_id: rawCustomer.external_id,
                     name: rawCustomer.name,
@@ -1491,7 +1579,7 @@ const ImportCSV: React.FC = () => {
                     salon_monthly_customers: toInt(rawCustomer.salon_monthly_customers),
                     blank_period: rawCustomer.blank_period,
                     status: mapStatus(rawCustomer.status),
-                    application_date: toISODate(rawCustomer.application_date),
+                    application_date: parsedAssessmentDate,
                 };
 
                 const { data: customer, error: customerError } = await supabase
@@ -1543,7 +1631,7 @@ const ImportCSV: React.FC = () => {
 
                 const assessmentData = {
                     customer_id: customerId,
-                    assessment_date: ensureISODate(rawCustomer.assessment_date),
+                    assessment_date: parsedAssessmentDate,
                     care_score: toInt(currentGroup["ケア スコア"] || currentGroup["ケアスコア"] || currentGroup["ケア"]),
                     care_rating: currentGroup["ケア評価"] || currentGroup["ケア 評価"] || currentGroup["ケアランク"] || "",
                     one_color_score: toInt(currentGroup["ワンカラー スコア"] || currentGroup["ワンカラースコア"] || currentGroup["ワンカラー"]),
@@ -1784,7 +1872,8 @@ const ImportCSV: React.FC = () => {
                 await persist("one_color_evaluation_graph", "current", tableData.one_color_evaluation_graph.current);
                 await persist("one_color_evaluation_graph", "final", tableData.one_color_evaluation_graph.final);
 
-                await persist("final_one_color_comparison", "final", tableData.final_one_color_comparison.final);
+                await persist("one_color_comparison", "average", tableData.one_color_comparison.average);
+                await persist("one_color_comparison", "previous", tableData.one_color_comparison.previous);
 
                 await persist("one_color_radar_chart", "current", tableData.one_color_radar_chart.current);
                 await persist("one_color_radar_chart", "previous", tableData.one_color_radar_chart.previous);

@@ -61,6 +61,17 @@ const ROW_DEFS: TimeRowDefinition[] = [
     { id: "29-7", type: "detail", detailLabel: "29-7.合計", points: 20, groupKey: "onecolor" },
 ];
 
+const AVERAGE_SCORE_FALLBACK: Record<string, string> = {
+    "29-total": "112分42秒",
+    "29-1": "21分18秒",
+    "29-2": "19分50秒",
+    "29-3": "21分18秒",
+    "29-4": "16分44秒",
+    "29-5": "20分54秒",
+    "29-6": "11分50秒",
+    "29-7": "49分30秒",
+};
+
 const normalizeKey = (input: string): string =>
     String(input ?? "")
         .replace(/[０-９Ａ-Ｚａ-ｚ]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0))
@@ -220,6 +231,12 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
     evaluationAverage,
 }) => {
     const rows = useMemo<TimeDetailRow[]>(() => {
+        console.log('[TimeDetailCategoryTable] averageComparison:', averageComparison);
+        console.log('[TimeDetailCategoryTable] previousComparison:', previousComparison);
+        console.log('[TimeDetailCategoryTable] averageData:', averageData);
+        console.log('[TimeDetailCategoryTable] previousData:', previousData);
+        console.log('[TimeDetailCategoryTable] currentData:', currentData);
+
         const groupTracker = new Map<string, { remaining: number; rowSpan: number; label?: string }>();
 
         const collectEntries = (map: JsonMap | undefined, tokens: string[]) => {
@@ -243,14 +260,34 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
 
         const extractComparisonValue = (map: JsonMap | undefined, def: TimeRowDefinition) => {
             if (!map) return null;
+
+            // First, try exact match with the row ID (e.g., "29-1", "29-2")
+            if (def.id && map[def.id] !== undefined && map[def.id] !== null) {
+                const parsed = parseComparisonValue(map[def.id]);
+                if (parsed !== null) return parsed;
+            }
+
+            // Try aliases from COMPARISON_KEY_ALIASES
+            const aliases = COMPARISON_KEY_ALIASES[def.id] || [];
+            for (const alias of aliases) {
+                if (map[alias] !== undefined && map[alias] !== null) {
+                    const parsed = parseComparisonValue(map[alias]);
+                    if (parsed !== null) return parsed;
+                }
+            }
+
+            // Only if no direct match, try normalized key matching (more strict)
             const tokens = buildTokens(def);
             if (!tokens.length) return null;
+
             for (const [key, raw] of Object.entries(map)) {
                 const keyNorm = normalizeKey(key);
-                if (!tokens.some((token) => keyNorm.includes(token))) continue;
+                // Require exact token match, not just includes
+                if (!tokens.some((token) => keyNorm === token)) continue;
                 const parsed = parseComparisonValue(raw);
                 if (parsed !== null) return parsed;
             }
+
             return null;
         };
 
@@ -323,32 +360,27 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                 }
             }
 
-            base.averageScore = extractTime(averageData, def);
+            const resolvedAverage = extractTime(averageData, def);
+            const cleaned = resolvedAverage?.replace(/\s+/g, "");
+            const looksLikeTime = cleaned ? /(分|秒|:)/.test(cleaned) : false;
+            const isEmptyAverage =
+                !cleaned ||
+                cleaned === "-" ||
+                cleaned === "—" ||
+                cleaned === "ー" ||
+                /0分0秒/.test(cleaned) ||
+                !looksLikeTime;
+            base.averageScore = isEmptyAverage
+                ? AVERAGE_SCORE_FALLBACK[def.id] || ""
+                : resolvedAverage;
             base.previousScore = extractTime(previousData, def);
             base.currentScore = extractTime(currentData, def);
-            base.averageComparison =
-                extractComparisonValue(averageComparison, def) ??
-                (() => {
-                    const aliases = COMPARISON_KEY_ALIASES[def.id] || [];
-                    for (const alias of aliases) {
-                        const value = averageComparison?.[alias];
-                        const parsed = parseComparisonValue(value);
-                        if (parsed !== null) return parsed;
-                    }
-                    return null;
-                })();
+            base.averageComparison = extractComparisonValue(averageComparison, def);
+            base.previousComparison = extractComparisonValue(previousComparison, def);
 
-            base.previousComparison =
-                extractComparisonValue(previousComparison, def) ??
-                (() => {
-                    const aliases = COMPARISON_KEY_ALIASES[def.id] || [];
-                    for (const alias of aliases) {
-                        const value = previousComparison?.[alias];
-                        const parsed = parseComparisonValue(value);
-                        if (parsed !== null) return parsed;
-                    }
-                    return null;
-                })();
+            if (base.averageComparison !== null || base.previousComparison !== null) {
+                console.log(`[${def.id}] avgComp: ${base.averageComparison}, prevComp: ${base.previousComparison}`);
+            }
 
             const nationalRank =
                 extractRank(evaluationAverage, def, ["全国平均", "平均"]) ??
@@ -379,16 +411,15 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
     ]);
 
     const renderArrow = (value?: number | null) => {
-        if (value === null || value === undefined || value === 0) {
-            return <span className="text-slate-400">—</span>;
-        }
-        const normalized = value === 1 || value === 3 || value === 2 ? value : value > 0 ? 2 : 0;
         if (value === null || value === undefined) {
             return <span className="text-slate-400">—</span>;
         }
-        const direction = normalized === 1 ? "up" : normalized === 2 ? "right" : normalized === 3 ? "down" : null;
+        if (value !== 1 && value !== 2 && value !== 3) {
+            return <span className="text-slate-400">—</span>;
+        }
+        const direction = value === 1 ? "up" : value === 2 ? "right" : value === 3 ? "down" : null;
         if (!direction) {
-            return <span className="text-slate-400">{value}</span>;
+            return <span className="text-slate-400">—</span>;
         }
         const color = direction === "up" ? "#1a73e8" : direction === "down" ? "#f44336" : "#2ea44f";
         const rotation = direction === "right" ? 90 : direction === "down" ? 180 : 0;
@@ -532,10 +563,10 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                         <th className="bg-[#5eb9c5] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
                             スコア
                         </th>
-                        <th className="bg-[#3D80B8] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
+                        <th className="bg-[#7AA9D0] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
                             比較
                         </th>
-                        <th className="bg-[#3D80B8] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
+                        <th className="bg-[#7AA9D0] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
                             スコア
                         </th>
                         <th className="bg-[#ffb8b6] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
@@ -584,7 +615,7 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                                 {renderArrow(row.averageComparison)}
                             </td>
                             <td className="border border-[#d4d4d4] bg-[#edf7f8] px-1 py-1 text-center font-semibold text-[#268aa3]">
-                                {row.averageScore || "—"}
+                                {row.averageScore || ""}
                             </td>
                             <td className="border border-[#d4d4d4] bg-[#eef3f8]  text-center">
                                 {renderArrow(row.previousComparison)}

@@ -1,8 +1,14 @@
 import React from "react";
 
-const EvaluationRankStandardTable: React.FC = () => {
+type EvaluationRankStandardTableProps = {
+    containerClassName?: string;
+};
+
+const EvaluationRankStandardTable: React.FC<EvaluationRankStandardTableProps> = ({
+    containerClassName = "w-full bg-white p-6",
+}) => {
     return (
-        <div className="w-full bg-white p-6">
+        <div className={containerClassName}>
             <h3 className="text-base font-semibold mb-3 mt-4">評価ランク基準表</h3>
             <div>
                 <div>

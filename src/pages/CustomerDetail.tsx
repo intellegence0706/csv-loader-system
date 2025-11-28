@@ -24,6 +24,10 @@ import OverviewRadar from "../components/customer/OverviewRadar";
 import TimeRadar from "../components/customer/TimeRadar";
 import { downloadPDF } from "@/utils/pdfGenerator";
 import { elementToImage } from "@/utils/chartToImage";
+import { capturePageAsPDF, captureMultipleSectionsAsPDF } from "@/utils/screenCapturePDF";
+import { CARE_AVG_SCORE_FALLBACK } from "@/constants/careAverageScores";
+import { ONE_COLOR_AVG_SCORE_FALLBACK } from "@/constants/oneColorAverageScores";
+import { NATIONAL_AVG_OVERVIEW_OVERRIDES } from "@/constants/nationalAverageOverview";
 
 
 type JsonMap = Record<string, number | string | null | undefined>;
@@ -38,7 +42,7 @@ type Customer = {
     application_date: string | null;
 };
 
-type CareCheckpoint = { code: string; label: string; points?: number };
+type CareCheckpoint = { code: string; label: string; points?: number; starred?: boolean };
 type CareItem = { id: number; title: string; required?: boolean; checkpoints: CareCheckpoint[] };
 type CareCategory = { name: string; items: CareItem[] };
 
@@ -47,7 +51,7 @@ const CARE_EVALUATION_MASTER: CareCategory[] = [
         name: "オフ",
         items: [
             { id: 1, title: "オフ 削り", checkpoints: [{ code: "1-1", label: "削りすぎ", points: 10 }, { code: "1-2", label: "削り不足", points: 10 }] },
-            { id: 2, title: "オフ 仕上", required: true, checkpoints: [{ code: "2-1", label: "ジェル残り", points: 20 }] },
+            { id: 2, title: "オフ 仕上", checkpoints: [{ code: "2-1", label: "ジェル残り", points: 20 }] },
         ],
     },
     {
@@ -67,9 +71,10 @@ const CARE_EVALUATION_MASTER: CareCategory[] = [
                 id: 4,
                 title: "ファイル 長さ・形",
                 checkpoints: [
-                    { code: "4-1", label: "ガタつき", points: 10 },
+                    { code: "4-1", label: "ガタつき", points: 10, starred: true },
+
                     { code: "4-2", label: "バランス", points: 20 },
-                    { code: "4-3", label: "形の統一", points: 10 },
+                    { code: "4-3", label: "形の統一", points: 10, starred: true },
                 ],
             },
             {
@@ -107,12 +112,12 @@ const CARE_EVALUATION_MASTER: CareCategory[] = [
             {
                 id: 9,
                 title: "右サイド",
-                checkpoints: [{ code: "9-1", label: "ルースキューティクル", points: 30 }],
+                checkpoints: [{ code: "9-1", label: "ルースキューティクル", points: 30, starred: true }],
             },
             {
                 id: 10,
                 title: "左サイド",
-                checkpoints: [{ code: "10-1", label: "ルースキューティクル", points: 30 }],
+                checkpoints: [{ code: "10-1", label: "ルースキューティクル", points: 30, starred: true }],
             },
             {
                 id: 11,
@@ -126,7 +131,7 @@ const CARE_EVALUATION_MASTER: CareCategory[] = [
                 id: 12,
                 title: "サイドウォール",
                 checkpoints: [
-                    { code: "12-1", label: "ルースキューティクル", points: 20 },
+                    { code: "12-1", label: "ルースキューティクル", points: 20, starred: true },
                     { code: "12-2", label: "ガタつき", points: 20 },
                 ],
             },
@@ -300,7 +305,7 @@ type CareRankDatum = {
 };
 
 type AxisKeyOC = "ベース" | "カラー" | "トップ";
-type OCCheckpoint = { code: string; label: string; points: number; highlight?: boolean };
+type OCCheckpoint = { code: string; label: string; points: number; highlight?: boolean; starred?: boolean };
 type OCItem = { id: number; title: string; required?: boolean; checkpoints: OCCheckpoint[] };
 type OCCategory = { name: AxisKeyOC; items: OCItem[] };
 
@@ -311,26 +316,24 @@ const ONE_COLOR_MASTER: OCCategory[] = [
             {
                 id: 14,
                 title: "はみ出し",
-                required: true,
                 checkpoints: [
-                    { code: "14-1", label: "キューティクルライン", points: 10 },
-                    { code: "14-2", label: "コーナー・サイド", points: 20 },
+                    { code: "14-1", label: "キューティクルライン", points: 10, starred: true },
+                    { code: "14-2", label: "コーナー・サイド", points: 20, starred: true },
                 ],
             },
             {
                 id: 15,
                 title: "キューティクルライン",
-                required: true,
                 checkpoints: [
                     { code: "15-1", label: "すき間・塗漏れ", points: 10 },
-                    { code: "15-2", label: "ガタつき", points: 20 },
+                    { code: "15-2", label: "ガタつき", points: 20, starred: true },
                 ],
             },
             {
                 id: 16,
                 title: "コーナー",
                 checkpoints: [
-                    { code: "16-1", label: "すき間・塗漏れ", points: 10 },
+                    { code: "16-1", label: "すき間・塗漏れ", points: 10, starred: true },
                     { code: "16-2", label: "ガタつき", points: 20 },
                 ],
             },
@@ -339,7 +342,7 @@ const ONE_COLOR_MASTER: OCCategory[] = [
                 title: "サイド",
                 checkpoints: [
                     { code: "17-1", label: "すき間・塗漏れ", points: 20 },
-                    { code: "17-2", label: "ガタつき", points: 30 },
+                    { code: "17-2", label: "ガタつき", points: 30, starred: true },
                 ],
             },
             {
@@ -347,7 +350,7 @@ const ONE_COLOR_MASTER: OCCategory[] = [
                 title: "ハイポイント",
                 checkpoints: [
                     { code: "18-1", label: "位置", points: 10 },
-                    { code: "18-2", label: "アーチのガタつき", points: 30 },
+                    { code: "18-2", label: "アーチのガタつき", points: 30, starred: true },
                 ],
             },
             {
@@ -372,7 +375,7 @@ const ONE_COLOR_MASTER: OCCategory[] = [
                 title: "キューティクルライン",
                 checkpoints: [
                     { code: "20-1", label: "すき間・塗漏れ", points: 10 },
-                    { code: "20-2", label: "ガタつき", points: 10 },
+                    { code: "20-2", label: "ガタつき", points: 10, starred: true },
                 ],
             },
             {
@@ -380,7 +383,7 @@ const ONE_COLOR_MASTER: OCCategory[] = [
                 title: "右コーナー",
                 checkpoints: [
                     { code: "21-1", label: "すき間・塗漏れ", points: 20 },
-                    { code: "21-2", label: "ガタつき", points: 20 },
+                    { code: "21-2", label: "ガタつき", points: 20, starred: true },
                 ],
             },
             {
@@ -388,7 +391,7 @@ const ONE_COLOR_MASTER: OCCategory[] = [
                 title: "右コーナー",
                 checkpoints: [
                     { code: "22-1", label: "すき間・塗漏れ", points: 10 },
-                    { code: "22-2", label: "ガタつき", points: 20 },
+                    { code: "22-2", label: "ガタつき", points: 20, starred: true },
                 ],
             },
             {
@@ -396,7 +399,7 @@ const ONE_COLOR_MASTER: OCCategory[] = [
                 title: "右コーナー",
                 checkpoints: [
                     { code: "23-1", label: "すき間・塗漏れ", points: 20 },
-                    { code: "23-2", label: "ガタつき", points: 30 },
+                    { code: "23-2", label: "ガタつき", points: 30, starred: true },
                 ],
             },
             {
@@ -404,7 +407,7 @@ const ONE_COLOR_MASTER: OCCategory[] = [
                 title: "左サイド",
                 checkpoints: [
                     { code: "24-1", label: "すき間・塗漏れ", points: 10 },
-                    { code: "24-2", label: "ガタつき", points: 20 },
+                    { code: "24-2", label: "ガタつき", points: 20, starred: true },
                 ],
             },
             {
@@ -445,8 +448,8 @@ const ONE_COLOR_MASTER: OCCategory[] = [
                 id: 28,
                 title: "はみ出し",
                 checkpoints: [
-                    { code: "28-1", label: "キューティクルライン", points: 10 },
-                    { code: "28-2", label: "コーナー・サイド", points: 20 },
+                    { code: "28-1", label: "キューティクルライン", points: 10, starred: true },
+                    { code: "28-2", label: "コーナー・サイド", points: 20, starred: true },
                 ],
             },
         ],
@@ -791,6 +794,68 @@ export default function CustomerDetail() {
         activeTabRef.current = activeTab;
     }, [activeTab]);
 
+    const handleScreenCapturePdf = async () => {
+        const previousTab = activeTabRef.current;
+
+        const waitForRender = (duration = 500) =>
+            new Promise<void>((resolve) => {
+                setTimeout(resolve, duration);
+            });
+
+        const switchTab = async (tabValue: string) => {
+            if (activeTabRef.current !== tabValue) {
+                setActiveTab(tabValue);
+            }
+            await waitForRender();
+        };
+
+        try {
+            toast({
+                title: "PDF生成中...",
+                description: "各タブを順番にキャプチャしています。しばらくお待ちください。",
+            });
+
+            const filename = `${customer?.name || "customer"}_${customer?.application_date || "assessment"}_screen.pdf`;
+
+            const sectionsWithTabs = [
+                { tab: "overall", id: "pdf-overview-card" },
+                { tab: "overall", id: "pdf-rank-explanation" },
+                { tab: "overall", id: "pdf-rank-standard-overall" },
+                { tab: "care", id: "pdf-care-card" },
+                { tab: "care", id: "pdf-care-radar" },
+                { tab: "care", id: "pdf-care-rank-standard" },
+                { tab: "onecolor", id: "pdf-onecolor-summary" },
+                { tab: "onecolor", id: "pdf-onecolor-detail" },
+                { tab: "onecolor", id: "pdf-onecolor-radar" },
+                { tab: "onecolor", id: "pdf-onecolor-rank-standard" },
+                { tab: "time", id: "pdf-time-card" },
+                { tab: "time", id: "pdf-time-radar-card" },
+                { tab: "time", id: "pdf-time-rank-standard" },
+                { tab: "time", id: "pdf-time-reference" },
+            ];
+
+            await captureMultipleSectionsAsPDF(sectionsWithTabs, filename, switchTab, {
+                quality: 0.95,
+                scale: 2,
+            });
+
+            await switchTab(previousTab);
+
+            toast({
+                title: "PDF生成成功",
+                description: "画面キャプチャPDFをダウンロードしました。",
+            });
+        } catch (error) {
+            console.error("Screen capture PDF failed:", error);
+            toast({
+                title: "PDF生成エラー",
+                description: "画面キャプチャPDFの生成に失敗しました。",
+                variant: "destructive",
+            });
+            await switchTab(previousTab);
+        }
+    };
+
     const handleSavePdf = async () => {
         const captureElement = async (elementId: string) => {
             const element = document.getElementById(elementId);
@@ -819,9 +884,11 @@ export default function CustomerDetail() {
             { tab: "overall", id: "pdf-rank-explanation", title: "評価ランク説明" },
             { tab: "overall", id: "pdf-rank-standard-overall", title: "評価ランク表" },
             { tab: "care", id: "pdf-care-card", title: "ケア評価" },
+            { tab: "care", id: "pdf-care-radar", title: "ケアレーダーチャート" },
             { tab: "care", id: "pdf-care-rank-standard", title: "ケア評価ランク表" },
             { tab: "onecolor", id: "pdf-onecolor-summary", title: "ワンカラー評価" },
             { tab: "onecolor", id: "pdf-onecolor-detail", title: "ワンカラー評価（詳細）" },
+            { tab: "onecolor", id: "pdf-onecolor-radar", title: "ワンカラーレーダーチャート" },
             { tab: "onecolor", id: "pdf-onecolor-rank-standard", title: "ワンカラー評価ランク表" },
             { tab: "time", id: "pdf-time-card", title: "タイム評価" },
             { tab: "time", id: "pdf-time-radar-card", title: "タイム詳細" },
@@ -926,7 +993,6 @@ export default function CustomerDetail() {
                         "care_comparison",
                         "care_radar_chart",
                         "one_color_evaluation_graph",
-                        "final_one_color_comparison",
                         "one_color_comparison",
                         "one_color_radar_chart",
                         "time_evaluation_graph",
@@ -1427,9 +1493,9 @@ export default function CustomerDetail() {
                 setOneColorEvaluationGraph((oneEvalCurBlob?.data as JsonMap) || (sectionData?.one_color_evaluation_graph as JsonMap) || {});
                 setOneColorEvaluationGraphPrevious((oneEvalPrevBlob?.data as JsonMap) || {});
                 const ocAvgRow = blobRows?.find((b: any) => b.section === "one_color_comparison" && b.subtype === "average");
-                const ocPrevRow = blobRows?.find((b: any) => b.section === "final_one_color_comparison" && (b.subtype === "final" || b.subtype === "previous"));
+                const ocPrevRow = blobRows?.find((b: any) => b.section === "one_color_comparison" && b.subtype === "previous");
 
-                setOneColorComparison(sectionData?.final_one_color_comparison || sectionData?.one_color_comparison || {});
+                setOneColorComparison(sectionData?.one_color_comparison || {});
 
                 // Fallbacks for one_color_comparison (average and previous/final) by customer when assessment-scoped rows are missing/empty
                 const isEmptyCmpRow = (row: any) => !row || !row.data || (typeof row.data === "object" && Object.keys(row.data || {}).length === 0);
@@ -1443,7 +1509,7 @@ export default function CustomerDetail() {
                         .from("section_blobs")
                         .select("*")
                         .eq("customer_id", id)
-                        .in("section", ["one_color_comparison", "final_one_color_comparison", "one_color_evaluation_graph"])
+                        .in("section", ["one_color_comparison", "one_color_evaluation_graph"])
                         .order("created_at", { ascending: false })
 
                     if (ocRowsByCustomer && ocRowsByCustomer.length) {
@@ -1452,7 +1518,7 @@ export default function CustomerDetail() {
                             : ocRowsByCustomer.find((r: any) => r.section === "one_color_comparison" && r.subtype === "average") || ocAvg;
                         ocPrev = ocPrev && !isEmptyCmpRow(ocPrev)
                             ? ocPrev
-                            : ocRowsByCustomer.find((r: any) => r.section === "final_one_color_comparison" && (r.subtype === "final" || r.subtype === "previous")) || ocPrev;
+                            : ocRowsByCustomer.find((r: any) => r.section === "one_color_comparison" && r.subtype === "previous") || ocPrev;
                         ocEvalCurRow = ocEvalCurRow && !isEmptyEval(ocEvalCurRow)
                             ? ocEvalCurRow
                             : ocRowsByCustomer.find((r: any) => r.section === "one_color_evaluation_graph" && (!r.subtype || r.subtype === "current")) || ocEvalCurRow;
@@ -1775,8 +1841,34 @@ export default function CustomerDetail() {
             curr: { rating: (assessment?.time_rating as string) || rankFromScore(timeCur, 300), score: timeCur }
         });
 
-        return rows;
-    }, [prevRatings, assessment, totalPrev, totalCur, totalRank, careScores, oneColorScores, timeScores, prevCareTotal, prevOneColorTotal, prevTimeTotal, prevCareTotalFromBlob, prevOneColorTotalFromBlob, prevTimeTotalFromBlob]);
+        return rows.map((row) => {
+            const override = NATIONAL_AVG_OVERVIEW_OVERRIDES[row.key];
+            if (override) {
+                row.avg = {
+                    ...row.avg,
+                    rating: override.rating,
+                    score: override.score,
+                    timeText: override.timeText ?? row.avg.timeText,
+                };
+            }
+            return row;
+        });
+    }, [
+        prevRatings,
+        assessment,
+        totalPrev,
+        totalCur,
+        totalRank,
+        careScores,
+        oneColorScores,
+        timeScores,
+        prevCareTotal,
+        prevOneColorTotal,
+        prevTimeTotal,
+        prevCareTotalFromBlob,
+        prevOneColorTotalFromBlob,
+        prevTimeTotalFromBlob,
+    ]);
 
 
     const prevAggData = useMemo(() => ({
@@ -1878,13 +1970,21 @@ export default function CustomerDetail() {
                                 <span>ID：{customer?.external_id ?? "—"}</span>
                                 <span>採点日：{customer?.application_date ?? "—"}</span>
                             </div>
-                            <Button
-                                size="sm"
-                                className="mt-3 bg-[#16929F] hover:bg-emerald-700 text-white text-xs rounded-md"
-                                onClick={handleSavePdf}>
-                                <Download className="w-4 h-4 mr-1" />
-                                PDFで保存
-                            </Button>
+                            <div className="flex gap-2 mt-3">
+                                {/* <Button
+                                    size="sm"
+                                    onClick={handleSavePdf}>
+                                    
+                                </Button> */}
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="bg-[#16929F] hover:bg-emerald-700 text-white text-xs rounded-md"
+                                    onClick={handleScreenCapturePdf}>
+                                    <Download className="w-4 h-4 mr-1" />
+                                    PDFで保存
+                                </Button>
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 w-full sm:w-auto">
@@ -1939,22 +2039,16 @@ export default function CustomerDetail() {
                                                         className="w-32 bg-[#e5e5e5] border border-[#dddddd] px-3 py-3 text-left font-semibold">
                                                         カテゴリー
                                                     </th>
-                                                    <th
-                                                        colSpan={2}
-                                                        className="bg-[#4fb1bc] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold"
-                                                    >
+                                                    <th colSpan={2} className="bg-[#4fb1bc] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold">
                                                         全国平均
                                                     </th>
-                                                    <th
-                                                        colSpan={2}
-                                                        className="bg-[#fb9793] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold"
-                                                    >
+                                                    <th colSpan={2} className="bg-[#3d80b8] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold">
+                                                        前回
+                                                    </th>
+                                                    <th colSpan={2} className="bg-[#fb9793] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold">
                                                         今回
                                                     </th>
-                                                    <th
-                                                        colSpan={2}
-                                                        className="w-24 bg-[#fb9793] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold"
-                                                    >
+                                                    <th colSpan={2} className="w-24 bg-[#fb9793] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold">
                                                         比較
                                                     </th>
                                                 </tr>
@@ -1965,6 +2059,12 @@ export default function CustomerDetail() {
                                                         評価ランク
                                                     </th>
                                                     <th className="bg-[#6ebec7] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
+                                                        スコア
+                                                    </th>
+                                                    <th className="bg-[#6ea3c7] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
+                                                        評価ランク
+                                                    </th>
+                                                    <th className="bg-[#6ea3c7] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
                                                         スコア
                                                     </th>
                                                     <th className="bg-[#ffb3ae] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
@@ -1997,27 +2097,45 @@ export default function CustomerDetail() {
 
                                                     const isCurrentDisabled =
                                                         item.curr?.disabled;
+                                                    const nationalTimeText = item.key === "タイム" ? (item.avg?.timeText || prevTimeDisplay) : null;
 
                                                     return (
                                                         <tr key={item.key} className="align-middle">
 
-                                                            <td className="bg-[#f2f2f2] border border-[#dddddd] px-3 py-3 font-medium whitespace-nowrap">
+                                                            <td className="bg-[#f2f2f2] border border-[#dddddd] px-3 py-3 text-[#16929F] font-medium whitespace-nowrap">
                                                                 {item.key}
                                                             </td>
 
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
-                                                                <span className="font-semibold text-[#138495]">
+                                                                <span className="font-semibold text-[#16929F]">
                                                                     {item.avg.rating}
                                                                 </span>
                                                             </td>
 
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
-                                                                <span className="font-semibold text-[#138495]">
+                                                                <span className="font-semibold text-[#16929F]">
                                                                     {item.avg.score}
                                                                 </span>{" "}
                                                                 <span className="text-slate-400">/ {item.denom}</span>
                                                                 {item.key === "タイム" ? (
-                                                                    <div className="mt-2 pt-2 border-t border-[#dddddd] text-[#138495] font-bold">
+                                                                    <div className="mt-2 pt-2 border-t border-[#f2d3d3] text-[#16929F] font-bold">
+                                                                        {nationalTimeText}
+                                                                    </div>
+                                                                ) : null}
+                                                            </td>
+
+                                                            <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
+                                                                <span className="font-semibold text-[#2a6ba7]">
+                                                                    {item.prev.rating}
+                                                                </span>
+                                                            </td>
+                                                            <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
+                                                                <span className="font-semibold text-[#2a6ba7]">
+                                                                    {item.prev.score}
+                                                                </span>{" "}
+                                                                <span className="text-slate-400">/ {item.denom}</span>
+                                                                {item.key === "タイム" ? (
+                                                                    <div className="mt-2 pt-2 border-t border-[#d5e3f2] text-[#2a6ba7] font-bold">
                                                                         {prevTimeDisplay}
                                                                     </div>
                                                                 ) : null}
@@ -2159,9 +2277,10 @@ export default function CustomerDetail() {
                                             </tbody>
                                         </table>
                                     </div>
-                                </div>
-                                <div id="pdf-rank-standard-overall">
-                                    <EvaluationRankStandardTable />
+                                    <br />
+                                    <div id="pdf-rank-standard-overall">
+                                        <EvaluationRankStandardTable containerClassName="w-full" />
+                                    </div>
                                 </div>
                             </TabsContent>
 
@@ -2170,9 +2289,21 @@ export default function CustomerDetail() {
                                 <Card id="pdf-care-card">
                                     {(() => {
                                         const denom = 410;
-                                        const avgScore = (prevCareTotal || prevCareTotalFromBlob || 0) as number;
+                                        const nationalOverride = NATIONAL_AVG_OVERVIEW_OVERRIDES["ケア"];
+                                        const nationalScoreRaw =
+                                            num(avgData?.["ケア スコア"]) ??
+                                            num(avgData?.["ケア"]) ??
+                                            nationalOverride?.score ??
+                                            0;
+                                        const nationalScore = nationalScoreRaw ?? 0;
+                                        const nationalRank =
+                                            (avgData?.["ケア評価"] as string) ??
+                                            (avgData?.["ケア 評価"] as string) ??
+                                            nationalOverride?.rating ??
+                                            rankFromScore(nationalScore, denom);
+                                        const prevScore = (prevCareTotal || prevCareTotalFromBlob || 0) as number;
+                                        const prevRank = (prevRatings.care as string) || rankFromScore(prevScore, denom);
                                         const curScore = (num(assessment?.care_score) ?? num(scoreCurrent?.["ケア スコア"]) ?? num(scoreCurrent?.["ケア"]) ?? 0) as number;
-                                        const avgRank = (prevRatings.care as string) || rankFromScore(avgScore, denom);
                                         const curRank = (assessment?.care_rating as string) || rankFromScore(curScore, denom);
                                         return (
                                             <>
@@ -2185,6 +2316,9 @@ export default function CustomerDetail() {
                                                             <th colSpan={2} className="bg-[#4fb1bc] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold">
                                                                 全国平均
                                                             </th>
+                                                            <th colSpan={2} className="bg-[#3D80B8] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold">
+                                                                前回
+                                                            </th>
                                                             <th colSpan={2} className="bg-[#fb9793] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold">
                                                                 今回
                                                             </th>
@@ -2194,6 +2328,12 @@ export default function CustomerDetail() {
                                                                 評価ランク
                                                             </th>
                                                             <th className="bg-[#6ebec7] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
+                                                                スコア
+                                                            </th>
+                                                            <th className="bg-[#7AA9D0] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
+                                                                評価ランク
+                                                            </th>
+                                                            <th className="bg-[#7AA9D0] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
                                                                 スコア
                                                             </th>
                                                             <th className="bg-[#ffb3ae] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
@@ -2210,22 +2350,30 @@ export default function CustomerDetail() {
                                                                 ケア
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
-                                                                <span className="font-semibold text-[#138495]">{avgRank}</span>
+                                                                <span className="font-semibold text-[#138495]">AA</span>
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
-                                                                <span className="font-semibold text-[#138495]">{avgScore}</span>{" "}
+                                                                <span className="font-semibold text-[#138495]">320</span>
                                                                 <span className="text-slate-400">/ {denom}</span>
                                                             </td>
-                                                            <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#fff7f7]">
+                                                            <td className="border border-[#dddddd] px-3 py-3 text-center">
+                                                                <span className="font-semibold text-[#3d7fb6]">{prevRank}</span>
+                                                            </td>
+                                                            <td className="border border-[#dddddd] px-3 py-3 text-center">
+                                                                <span className="font-semibold text-[#3d7fb6]">{prevScore}</span>{" "}
+                                                                <span className="text-slate-400">/ {denom}</span>
+                                                            </td>
+                                                            <td className="border border-[#dddddd] px-3 py-3 text-center">
                                                                 <span className="font-semibold text-[#e94444]">{curRank}</span>
                                                             </td>
-                                                            <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#fff7f7]">
+                                                            <td className="border border-[#dddddd] px-3 py-3 text-center">
                                                                 <span className="font-semibold text-[#e94444]">{curScore}</span>{" "}
                                                                 <span className="text-slate-400">/ {denom}</span>
                                                             </td>
                                                         </tr>
                                                     </tbody>
-                                                </table><br />
+                                                </table>
+                                                <br />
                                                 <div className="w-full">
                                                     <table className="w-full border-collapse text-sm text-slate-700">
                                                         <thead>
@@ -2236,6 +2384,7 @@ export default function CustomerDetail() {
                                                                 <th colSpan={2} className="bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">チェックポイント</th>
                                                                 <th rowSpan={2} className="w-12 bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">配点</th>
                                                                 <th colSpan={2} className="w-24 bg-[#6ebec7] text-white border border-[#d4d4d4] px-3 py-2 text-center">平均</th>
+                                                                <th colSpan={2} className="w-24 bg-[#3D80B8] text-white border border-[#d4d4d4] px-3 py-2 text-center">前回</th>
                                                                 <th colSpan={1} className="w-24 bg-[#fb9793] text-white border border-[#d4d4d4] px-3 py-2 text-center">今回</th>
                                                                 <th colSpan={4} className="w-40 bg-[#6ebec7] border border-[#d4d4d4] px-3 py-2 text-center text-white">評価グラフ</th>
                                                             </tr>
@@ -2244,6 +2393,8 @@ export default function CustomerDetail() {
                                                                 <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white">内容</th>
                                                                 <th className="bg-[#8eced4] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">比較</th>
                                                                 <th className="bg-[#8eced4] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">スコア</th>
+                                                                <th className="bg-[#7AA9D0] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">比較</th>
+                                                                <th className="bg-[#7AA9D0] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">スコア</th>
                                                                 <th className="bg-[#ffb3ae] text-white border border-[#d4d4d4] px-2 py-1 text-center text-xs">スコア</th>
                                                                 <th className="bg-[#FFE78E] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-[#4FB1BC]">B</th>
                                                                 <th className="bg-[#6ebec7] border border-[#d4d4d4] px-2 py-1 text-center text-xs text-white">A</th>
@@ -2392,31 +2543,6 @@ export default function CustomerDetail() {
                                                                     );
                                                                 };
 
-                                                                const buildSeqPuller = (map: Record<string, any> | undefined) => {
-                                                                    const toCompNum = (v: any) => {
-                                                                        if (typeof v === "number") return v;
-                                                                        const s = String(v ?? "");
-                                                                        if (/[↗↑]/.test(s)) return 1;
-                                                                        if (/[→➡]/.test(s)) return 2;
-                                                                        if (/[↘↓]/.test(s)) return 3;
-                                                                        const n = Number(s.replace(/[^\d.-]/g, ""));
-                                                                        return Number.isFinite(n) ? n : undefined;
-                                                                    };
-                                                                    // Prefer ordering by checkpoint code "NN-N" when present to align with table rows
-                                                                    const entries = Object.entries(map || {});
-                                                                    const parsed = entries.map(([k, v]) => {
-                                                                        const nk = normalizeKey(k);
-                                                                        const m = nk.match(/(\d{1,2})-(\d{1,2})/);
-                                                                        const keyOrder = m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : [999, 999];
-                                                                        return { keyOrder, num: toCompNum(v) };
-                                                                    });
-                                                                    parsed.sort((a, b) => (a.keyOrder[0] - b.keyOrder[0]) || (a.keyOrder[1] - b.keyOrder[1]));
-                                                                    const nums = parsed.map(p => p.num).filter((v) => v !== undefined) as number[];
-                                                                    let idx = 0;
-                                                                    return () => (idx < nums.length ? nums[idx++] : undefined);
-                                                                };
-                                                                const nextAvgComp = buildSeqPuller(careComparisonAverageData as any);
-
                                                                 const avgCompMap = ensureMapCare(careComparisonAverageData);
                                                                 const prevCompMap = ensureMapCare(careComparisonPreviousData);
                                                                 const evalCurrentMap = ensureMapCare(careEvaluationGraph);
@@ -2435,9 +2561,14 @@ export default function CustomerDetail() {
                                                                         const itemRowSpan = it.checkpoints.length;
                                                                         return it.checkpoints.map((cp, idx) => {
                                                                             const points = cp.points ?? 10;
-                                                                            const avgComp = getComp(avgCompMap, cp.code, cp.label) ?? nextAvgComp();
+                                                                            const avgComp = getComp(avgCompMap, cp.code, cp.label);
                                                                             const avgScore = getScore(previousBlob, cp.code, cp.label);
+                                                                            const prevComparison = getComp(prevCompMap, cp.code, cp.label);
+                                                                            const prevScore = getScore(previousBlob, cp.code, cp.label);
                                                                             const curScore = getScore(currentBlob, cp.code, cp.label);
+                                                                            const averageScoreValue =
+                                                                                CARE_AVG_SCORE_FALLBACK[cp.code] ??
+                                                                                (typeof avgScore === "number" && avgScore > 0 ? avgScore : 0);
                                                                             const prevRank = seriesPrev[overallIdx] ?? null;
                                                                             const currRank = seriesCurr[overallIdx] ?? null;
                                                                             overallIdx++;
@@ -2460,20 +2591,29 @@ export default function CustomerDetail() {
                                                                                             {`${it.id}. ${it.title}`}
                                                                                         </td>
                                                                                     )}
-                                                                                    {!idx && (
-                                                                                        <td
-                                                                                            className="border border-[#d4d4d4] px-3 py-2 text-center align-top"
-                                                                                            rowSpan={itemRowSpan}
-                                                                                        >
-                                                                                            {it.required ? "★" : ""}
-                                                                                        </td>
-                                                                                    )}
+                                                                                    <td className={`border border-[#d4d4d4] px-3 py-2 text-center ${yellowBgClass}`}>
+                                                                                        {cp.starred || it.required ? (
+                                                                                            <span className="text-[#f97316]">★</span>
+                                                                                        ) : (
+                                                                                            ""
+                                                                                        )}
+                                                                                    </td>
                                                                                     <td className={`border border-[#d4d4d4] px-2 py-2 text-center w-14 ${yellowBgClass}`}>{cp.code}</td>
                                                                                     <td className={`border border-[#d4d4d4] px-3 py-2 ${yellowBgClass}`}>{cp.label}</td>
                                                                                     <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{points}</td>
-                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{arrowFrom(avgComp)}</td>
-                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{avgScore || 0}</td>
-                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{curScore || 0}</td>
+                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>
+                                                                                        {arrowFrom(avgComp)}
+                                                                                    </td>
+                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center font-semibold text-[#4FB1BC] ${yellowBgClass}`}>
+                                                                                        {averageScoreValue}
+                                                                                    </td>
+                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>
+                                                                                        {arrowFrom(prevComparison)}
+                                                                                    </td>
+                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center font-semibold text-[#3d7fb6] ${yellowBgClass}`}>
+                                                                                        {prevScore || 0}
+                                                                                    </td>
+                                                                                    <td className={`border border-[#d4d4d4] px-2 py-2 text-center text-[#e94444] font-semibold ${yellowBgClass}`}>{curScore || 0}</td>
                                                                                     <td
                                                                                         colSpan={4}
                                                                                         className="border border-[#d4d4d4] bg-white px-2 py-2 align-top"
@@ -2764,7 +2904,7 @@ export default function CustomerDetail() {
 
                                         return (
                                             <>
-                                                <div className="relative h-[550px] overflow-hidden rounded-2xl border border-[#e8e9f4] bg-white">
+                                                <div id="pdf-care-radar" className="relative h-[550px] overflow-hidden rounded-2xl border border-[#e8e9f4] bg-white">
                                                     <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#e87674] via-white to-[#54b4bd]" />
                                                     <div className="flex flex-col gap-2 px-6 pt-6 sm:flex-row sm:items-center sm:justify-between">
                                                         <div>
@@ -2875,7 +3015,7 @@ export default function CustomerDetail() {
                                         );
                                     })()}
                                 </Card>
-                                <div id="pdf-care-rank-standard">
+                                <div id="pdf-care-rank-standard" className="mt-4">
                                     <EvaluationRankStandardTable />
                                 </div>
                             </TabsContent>
@@ -2917,13 +3057,15 @@ export default function CustomerDetail() {
                                                         </td>
                                                         {/* 全国平均 */}
                                                         <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
-                                                            <span className="font-semibold text-[#138495]">{avgRank}</span>
+                                                            {/* <span className="font-semibold text-[#138495]">{avgRank}</span> */}
+                                                            <span className="font-semibold text-[#138495]">AA</span>
                                                         </td>
                                                         <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
-                                                            <span className="font-semibold text-[#138495]">{avgScore}</span>{" "}
+                                                            <span className="font-semibold text-[#138495]">390</span>
+                                                            {/* <span className="font-semibold text-[#138495]">{avgScore}</span>{" "} */}
                                                             <span className="text-slate-400">/ {denom}</span>
                                                         </td>
-                                                        {/* 前回 */}
+
                                                         <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#eef3f8]">
                                                             <span className="font-semibold text-[#3d7fb6]">{prevOnlyRank}</span>
                                                         </td>
@@ -2931,7 +3073,7 @@ export default function CustomerDetail() {
                                                             <span className="font-semibold text-[#3d7fb6]">{prevOnlyScore}</span>{" "}
                                                             <span className="text-slate-400">/ {denom}</span>
                                                         </td>
-                                                        {/* 今回 */}
+
                                                         <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#fff7f7]">
                                                             <span className="font-semibold text-[#e94444]">{curRank}</span>
                                                         </td>
@@ -2948,16 +3090,6 @@ export default function CustomerDetail() {
                                 <Card id="pdf-onecolor-detail" className="mt-4">
                                     {(() => {
                                         const MASTER = ONE_COLOR_MASTER;
-                                        const ONE_COLOR_AVG_FALLBACK_SEQ: number[] = [
-                                            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, // 14-1〜18-2 まで
-                                            2,                             // 19-1
-                                            1, 1, 3,                       // 19-2〜19-4
-                                            1, 1, 3,                       // 19-5〜20-1
-                                            1, 1, 1, 3,                    // 20-2〜21-2
-                                            1, 1, 1, 1, 1, 1, 1, 1, 1,     // 22-1〜24-2〜25-1 近辺
-                                            1, 1, 1, 1, 1, 1, 1, 1         // 残り 26-1〜28-2 付近（全てフラット）
-                                        ];
-
                                         const ensureMapOC = (m: any): Record<string, any> => {
                                             if (!m) return {};
                                             if (typeof m === "string") {
@@ -3111,24 +3243,6 @@ export default function CustomerDetail() {
                                                 </thead>
                                                 <tbody>
                                                     {(() => {
-                                                        const buildSeqPuller = (map: Record<string, any> | undefined) => {
-                                                            const toCompNum = (v: any) => {
-                                                                if (typeof v === "number") return v;
-                                                                const s = String(v ?? "");
-                                                                if (/[↗↑]/.test(s)) return 1;
-                                                                if (/[→➡]/.test(s)) return 2;
-                                                                if (/[↘↓]/.test(s)) return 3;
-                                                                const n = Number(s.replace(/[^\d.-]/g, ""));
-                                                                return Number.isFinite(n) ? n : undefined;
-                                                            };
-                                                            const nums = Object.values(map || {}).map(toCompNum).filter((v) => v !== undefined) as number[];
-                                                            let idx = 0;
-                                                            return () => (idx < nums.length ? nums[idx++] : undefined);
-                                                        };
-                                                        const nextAvg = buildSeqPuller(avgComp);
-                                                        const nextPrev = buildSeqPuller(prevComp);
-                                                        let fallbackIdx = 0;
-
                                                         return MASTER.flatMap((cat) => {
                                                             const catRowSpan = cat.items.reduce((s, it) => s + it.checkpoints.length, 0);
                                                             let catRendered = false;
@@ -3136,13 +3250,11 @@ export default function CustomerDetail() {
                                                                 const itemRowSpan = it.checkpoints.length;
                                                                 return it.checkpoints.map((cp, idx) => {
                                                                     const points = cp.points;
-                                                                    const fallbackVal = ONE_COLOR_AVG_FALLBACK_SEQ[fallbackIdx++] ?? 2;
-                                                                    const avgComparison = getComp(avgComp, cp.code, cp.label)
-                                                                        ?? nextAvg()
-                                                                        ?? fallbackVal;
-                                                                    const prevComparison = getComp(prevComp, cp.code, cp.label) ?? nextPrev();
+                                                                    const avgComparison = getComp(avgComp, cp.code, cp.label);
+                                                                    const prevComparison = getComp(prevComp, cp.code, cp.label);
                                                                     const prevScore = getScore(previousBlob, cp.code, cp.label);
                                                                     const curScore = getScore(currentBlob, cp.code, cp.label);
+                                                                    const averageScoreDisplay = ONE_COLOR_AVG_SCORE_FALLBACK[cp.code] ?? "";
                                                                     const prevRank = getEvaluationRank(evalPreviousMap, cp.code, cp.label);
                                                                     const currRank = getEvaluationRank(evalCurrentMap, cp.code, cp.label);
                                                                     const rankValues = [prevRank, currRank].filter(
@@ -3164,24 +3276,20 @@ export default function CustomerDetail() {
                                                                                     {`${it.id}. ${it.title}`}
                                                                                 </td>
                                                                             )}
-                                                                            {!idx && (
-                                                                                <td
-                                                                                    className="border border-[#d4d4d4] px-3 py-2 text-center align-top"
-                                                                                    rowSpan={itemRowSpan}
-                                                                                >
-                                                                                    {it.required ? "★" : ""}
-                                                                                </td>
-                                                                            )}
+                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>
+                                                                                {cp.starred ? <span className="text-[#f97316]">★</span> : ""}
+                                                                            </td>
                                                                             <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{cp.code}</td>
                                                                             <td className={`border border-[#d4d4d4] px-3 py-2 ${cp.highlight ? "bg-[#ffefc2]" : yellowBgClass}`}>{cp.label}</td>
                                                                             <td className={`border border-[#d4d4d4] px-2 py-2 text-center font-semibold ${cp.highlight ? "bg-[#ffefc2]" : yellowBgClass}`}>{points}</td>
-                                                                            {/* 平均：比較は JO〜LA、スコアは空欄 */}
                                                                             <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{compToArrow(avgComparison)}</td>
-                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center text-slate-400 ${yellowBgClass}`}> </td>
-                                                                            {/* 前回：比較 OB〜PN、スコア LC〜MN */}
+                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center text-slate-600 font-semibold ${yellowBgClass}`}>
+                                                                                <span className="text-[#4FB1BC]">{averageScoreDisplay}</span>
+                                                                            </td>
                                                                             <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{compToArrow(prevComparison)}</td>
-                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{prevScore || 0}</td>
-                                                                            {/* 今回：スコア GO〜IA */}
+                                                                            <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>
+                                                                                <span className="text-[#3D80B8]">{prevScore || 0}</span>
+                                                                            </td>
                                                                             <td className={`border border-[#d4d4d4] px-2 py-2 text-center text-[#e94444] font-semibold ${yellowBgClass}`}>{curScore || 0}</td>
                                                                             <td colSpan={4} className="border border-[#d4d4d4] px-1 py-1 align-middle">
                                                                                 {renderEvaluationGraph(prevRank, currRank)}
@@ -3316,7 +3424,7 @@ export default function CustomerDetail() {
                                         const PreviousDot = Dot("#4075B5", "previousRaw");
                                         const CurrentDot = Dot("#F15C4B", "currentRaw");
                                         return (
-                                            <div className="relative h-[600px] overflow-hidden rounded-2xl border border-[#e8e9f4] bg-white">
+                                            <div id="pdf-onecolor-radar" className="relative h-[600px] overflow-hidden rounded-2xl border border-[#e8e9f4] bg-white">
                                                 <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#e87674] via-white to-[#54b4bd]" />
                                                 <div className="flex flex-col gap-2 px-6 pt-6 sm:flex-row sm:items-center sm:justify-between">
                                                     <div className="text-sm font-semibold text-slate-700">グラフの名前</div>
@@ -3387,7 +3495,7 @@ export default function CustomerDetail() {
 
                                     })()}
                                 </Card>
-                                <div id="pdf-onecolor-rank-standard">
+                                <div id="pdf-onecolor-rank-standard" className="mt-4">
                                     <EvaluationRankStandardTable />
                                 </div>
                             </TabsContent>
@@ -3438,13 +3546,13 @@ export default function CustomerDetail() {
                                                             </td>
                                                             {/* 全国平均 */}
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
-                                                                <span className="font-semibold text-[#138495]">{avgRank}</span>
+                                                                <span className="font-semibold text-[#138495]">AA</span>
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
-                                                                <span className="font-semibold text-[#138495]">{avgScore}</span>{" "}
+                                                                <span className="font-semibold text-[#138495]">150</span>
                                                                 <span className="text-slate-400">/ {denom}</span>
                                                                 <div className="mt-2 pt-2 border-t border-[#dddddd] text-[#138495] font-bold">
-                                                                    {prevTimeDisplay}
+                                                                    68分20秒
                                                                 </div>
                                                             </td>
 
@@ -3459,7 +3567,7 @@ export default function CustomerDetail() {
                                                                 </div>
 
                                                                 {/* <span className="font-semibold text-[#3d7fb6]">{prevOnlyScore}</span>{" "}
-                                                                <span className="text-slate-400">/ {denom}</span> */}
+                                                            <span className="text-slate-400">/ {denom}</span> */}
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#fff7f7]">
                                                                 <span className="font-semibold text-[#e94444]">{curRank}</span>
@@ -3499,12 +3607,20 @@ export default function CustomerDetail() {
                                         previousDetailData={timeBothHandPreviousData as Record<string, any> | undefined}
                                         currentDetailData={timeBothHandCurrentData as Record<string, any> | undefined}
                                     />
-                                    <EvaluationRankStandardTable />
-                                    <ReferenceTimeTable />
                                 </Card>
+                                <div className="mt-4 space-y-4">
+                                    <div id="pdf-time-rank-standard">
+                                        <EvaluationRankStandardTable />
+                                    </div>
+                                    <div id="pdf-time-reference">
+                                        <ReferenceTimeTable />
+                                    </div>
+                                </div>
                             </TabsContent>
+                            <br />
 
-                        </Tabs>
+                        </Tabs><br />
+
                     </div>
                     <div className="my-8 text-center text-[11px] text-slate-400">© Nail Skill Agency</div>
                 </div>
