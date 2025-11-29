@@ -819,6 +819,8 @@ export default function CustomerDetail() {
 
             const sectionsWithTabs = [
                 { tab: "overall", id: "pdf-overview-card" },
+                { tab: "overall", id: "pdf-overview-table" },
+                { tab: "overall", id: "pdf-overview-radar" },
                 { tab: "overall", id: "pdf-rank-explanation" },
                 { tab: "overall", id: "pdf-rank-standard-overall" },
                 { tab: "care", id: "pdf-care-card" },
@@ -881,6 +883,8 @@ export default function CustomerDetail() {
 
         const sectionsPlan = [
             { tab: "overall", id: "pdf-overview-card", title: "総合サマリー" },
+            { tab: "overall", id: "pdf-overview-table", title: "総合評価表" },
+            { tab: "overall", id: "pdf-overview-radar", title: "総合レーダーチャート" },
             { tab: "overall", id: "pdf-rank-explanation", title: "評価ランク説明" },
             { tab: "overall", id: "pdf-rank-standard-overall", title: "評価ランク表" },
             { tab: "care", id: "pdf-care-card", title: "ケア評価" },
@@ -1014,30 +1018,39 @@ export default function CustomerDetail() {
                 const timeAvgLapseBlob = blobRows?.find((b: any) => b.section === "time_lapse_comparison" && (b.subtype === "average" || b.subtype === "current"));
                 const timeBothHandPrev = blobRows?.find((b: any) => b.section === "time_both_hand" && (b.subtype === "previous" || b.subtype === "final"));
 
-                const prevOverallFromBlob = firstNum(
+                // Check if scorePrevBlob has valid data (not empty)
+                const hasValidPrevData = scorePrevBlob && scorePrevBlob.data &&
+                    typeof scorePrevBlob.data === "object" &&
+                    Object.keys(scorePrevBlob.data).length > 0 &&
+                    Object.values(scorePrevBlob.data).some(v => {
+                        const n = num(v);
+                        return n !== null && n !== 0;
+                    });
+
+                // Only calculate previous data if scorePrevBlob exists and has valid data
+                // If scorePrevBlob is missing or empty, it means there's no previous data for this assessment
+                const prevOverallFromBlob = hasValidPrevData ? firstNum(
                     findNumByKeyIncludes(scorePrevBlob?.data as JsonMap, ["総合", "スコア"]),
                     (scorePrevBlob?.data && num((scorePrevBlob.data as any)["総合"])) ?? 0
-                );
-                const prevCareFromBlob = firstNum(
+                ) : 0;
+                const prevCareFromBlob = hasValidPrevData ? firstNum(
                     findNumByKeyIncludes(scorePrevBlob?.data as JsonMap, ["ケア", "スコア"]),
                     findNumByKeyIncludes(carePrevBlob?.data as JsonMap, ["総合"]),
                     sumAllNumbers(carePrevBlob?.data as JsonMap)
-                );
-                const prevOneFromBlob = firstNum(
+                ) : 0;
+                const prevOneFromBlob = hasValidPrevData ? firstNum(
                     // Prefer direct previous "score" totals
                     findNumByKeyIncludes(scorePrevBlob?.data as JsonMap, ["ワンカラー", "スコア"]),
-                    // Fallback to section totals labeled as 総合/合計 in one_color_score / evaluation / radar
+                    // Fallback to section totals labeled as 総合/合計 in one_color_score / evaluation / radar (previous only)
                     findNumByKeyIncludes(onePrevBlob?.data as JsonMap, ["総合"]),
-                    findNumByKeyIncludes(oneEvalCurBlob?.data as JsonMap, ["総合"]),
                     findNumByKeyIncludes(oneEvalPrevBlob?.data as JsonMap, ["総合"]),
                     findNumByKeyIncludes(onePrevRadarBlob?.data as JsonMap, ["総合"]),
-                    // Last resort: sum any numeric values present
+                    // Last resort: sum any numeric values present (previous only)
                     sumAllNumbers(onePrevBlob?.data as JsonMap),
-                    sumAllNumbers(oneEvalCurBlob?.data as JsonMap),
                     sumAllNumbers(oneEvalPrevBlob?.data as JsonMap),
                     sumAllNumbers(onePrevRadarBlob?.data as JsonMap)
-                );
-                const prevTimeFromBlob = firstNum(
+                ) : 0;
+                const prevTimeFromBlob = hasValidPrevData ? firstNum(
                     // Prefer direct previous "score" totals
                     findNumByKeyIncludes(scorePrevBlob?.data as JsonMap, ["タイム", "スコア"]),
                     findNumByKeyIncludes(timePrevBlob?.data as JsonMap, ["総合"]),
@@ -1046,7 +1059,7 @@ export default function CustomerDetail() {
                     sumAllNumbers(timePrevBlob?.data as JsonMap),
                     sumAllNumbers(timePrevEvalBlob?.data as JsonMap),
                     sumAllNumbers(timePrevLapseBlob?.data as JsonMap)
-                );
+                ) : 0;
 
                 const prevTimeTextFromBlob =
                     // Strictly prefer totals on score/time blobs
@@ -1071,8 +1084,8 @@ export default function CustomerDetail() {
                     findTimeTextInData(timeBothHandCur?.data as JsonMap) ||
                     findTimeTextInData(timeEvalCur?.data as JsonMap);
 
-                let finalPrevTimeText = currTimeTextFromBlob || prevTimeTextFromBlob || "";
-                let finalCurrTimeText = prevTimeTextFromBlob || currTimeTextFromBlob || "";
+                let finalPrevTimeText = prevTimeTextFromBlob || "";
+                let finalCurrTimeText = currTimeTextFromBlob || "";
                 if (!finalCurrTimeText && assessment) {
                     const minutesVal = num(assessment.total_time_minutes) ?? 0;
                     const secondsVal = assessment.total_time_seconds as number | string | null | undefined;
@@ -1088,25 +1101,33 @@ export default function CustomerDetail() {
                 setPrevCareTotalFromBlob(prevCareFromBlob || 0);
                 setPrevOneColorTotalFromBlob(prevOneFromBlob || 0);
                 setPrevTimeTotalFromBlob(prevTimeFromBlob || 0);
-                const prevRatingTotalFromBlob = String((scorePrevBlob?.data as any)?.["総合評価"] || "");
-                const prevRatingCareFromBlob = String((scorePrevBlob?.data as any)?.["ケア評価"] || "");
-                const prevRatingOneFromBlob = String((scorePrevBlob?.data as any)?.["ワンカラー評価"] || "");
-                const prevRatingTimeFromBlob = String((scorePrevBlob?.data as any)?.["タイム評価"] || "");
-                if (prevRatingTotalFromBlob || prevRatingCareFromBlob || prevRatingOneFromBlob || prevRatingTimeFromBlob) {
-                    setPrevRatings({
-                        total: prevRatingTotalFromBlob || undefined,
-                        care: prevRatingCareFromBlob || undefined,
-                        one_color: prevRatingOneFromBlob || undefined,
-                        time: prevRatingTimeFromBlob || undefined,
-                    });
+                // Only set prevRatings if scorePrevBlob exists and has valid data
+                if (hasValidPrevData) {
+                    const prevRatingTotalFromBlob = String((scorePrevBlob?.data as any)?.["総合評価"] || "");
+                    const prevRatingCareFromBlob = String((scorePrevBlob?.data as any)?.["ケア評価"] || "");
+                    const prevRatingOneFromBlob = String((scorePrevBlob?.data as any)?.["ワンカラー評価"] || "");
+                    const prevRatingTimeFromBlob = String((scorePrevBlob?.data as any)?.["タイム評価"] || "");
+                    if (prevRatingTotalFromBlob || prevRatingCareFromBlob || prevRatingOneFromBlob || prevRatingTimeFromBlob) {
+                        setPrevRatings({
+                            total: prevRatingTotalFromBlob || undefined,
+                            care: prevRatingCareFromBlob || undefined,
+                            one_color: prevRatingOneFromBlob || undefined,
+                            time: prevRatingTimeFromBlob || undefined,
+                        });
+                    }
+                } else {
+                    // Clear prevRatings if no previous data exists
+                    setPrevRatings({});
                 }
 
-                // Fallback: if 'score.previous' not found by assessment_id (or all zeros), try latest by customer_id
-                if ((!scorePrevBlob || (!prevOverallFromBlob && !prevCareFromBlob && !prevOneFromBlob && !prevTimeFromBlob)) && id) {
+                // Only use fallback if scorePrevBlob exists but has zero values (meaning data was stored but is empty)
+                // Don't use fallback if scorePrevBlob doesn't exist or has no valid data
+                if (hasValidPrevData && (!prevOverallFromBlob && !prevCareFromBlob && !prevOneFromBlob && !prevTimeFromBlob) && id && assessment?.id) {
                     const { data: fallbackPrevRows, error: fErr } = await supabase
                         .from("section_blobs")
                         .select("*")
                         .eq("customer_id", id)
+                        .eq("assessment_id", assessment.id)
                         .eq("section", "score")
                         .eq("subtype", "previous")
                         .order("created_at", { ascending: false })
@@ -1391,21 +1412,22 @@ export default function CustomerDetail() {
                         .from("section_blobs")
                         .select("*")
                         .eq("customer_id", id)
+                        .eq("assessment_id", assessment.id)
                         .eq("section", "care_radar_chart")
                         .order("created_at", { ascending: false })
                         .limit(10);
                     if (careRadarByCustomer && careRadarByCustomer.length) {
                         careRadarAvgBlob =
                             isEmptyRadarBlob(careRadarAvgBlob)
-                                ? careRadarByCustomer.find((r: any) => r.section === "care_radar_chart" && r.subtype === "average") || careRadarAvgBlob
+                                ? careRadarByCustomer.find((r: any) => r.section === "care_radar_chart" && r.subtype === "average")
                                 : careRadarAvgBlob;
                         careRadarPrevBlob =
                             isEmptyRadarBlob(careRadarPrevBlob)
-                                ? careRadarByCustomer.find((r: any) => r.section === "care_radar_chart" && (r.subtype === "previous" || r.subtype === "final")) || careRadarPrevBlob
+                                ? careRadarByCustomer.find((r: any) => r.section === "care_radar_chart" && (r.subtype === "previous" || r.subtype === "final"))
                                 : careRadarPrevBlob;
                         careRadarCurBlob =
                             isEmptyRadarBlob(careRadarCurBlob)
-                                ? careRadarByCustomer.find((r: any) => r.section === "care_radar_chart" && r.subtype === "current") || careRadarCurBlob
+                                ? careRadarByCustomer.find((r: any) => r.section === "care_radar_chart" && r.subtype === "current")
                                 : careRadarCurBlob;
                     }
                 }
@@ -1425,16 +1447,17 @@ export default function CustomerDetail() {
                         .from("section_blobs")
                         .select("*")
                         .eq("customer_id", id)
+                        .eq("assessment_id", assessment.id)
                         .eq("section", "care_score")
                         .order("created_at", { ascending: false })
                         .limit(10);
                     if (careScoreByCustomer && careScoreByCustomer.length) {
                         careScoreCurBlob = careScoreCurBlob && !isEmptyData(careScoreCurBlob)
                             ? careScoreCurBlob
-                            : careScoreByCustomer.find((r: any) => r.subtype === "current") || careScoreByCustomer[0];
+                            : careScoreByCustomer.find((r: any) => r.subtype === "current");
                         careScorePrevBlob = careScorePrevBlob && !isEmptyData(careScorePrevBlob)
                             ? careScorePrevBlob
-                            : careScoreByCustomer.find((r: any) => r.subtype === "previous" || r.subtype === "final") || careScoreByCustomer[1] || careScoreByCustomer[0];
+                            : careScoreByCustomer.find((r: any) => r.subtype === "previous" || r.subtype === "final");
                     }
                 }
                 setCareScoreCurrentData((careScoreCurBlob?.data as JsonMap) || {});
@@ -1447,43 +1470,45 @@ export default function CustomerDetail() {
                         .from("section_blobs")
                         .select("*")
                         .eq("customer_id", id)
+                        .eq("assessment_id", assessment.id)
                         .eq("section", "one_color_score")
                         .order("created_at", { ascending: false })
                         .limit(10);
                     if (ocRowsByCustomer && ocRowsByCustomer.length) {
                         oneColorScoreCurBlob = oneColorScoreCurBlob && !isEmptyOC(oneColorScoreCurBlob)
                             ? oneColorScoreCurBlob
-                            : ocRowsByCustomer.find((r: any) => r.subtype === "current") || ocRowsByCustomer[0];
+                            : ocRowsByCustomer.find((r: any) => r.subtype === "current");
                         oneColorScorePrevBlob = oneColorScorePrevBlob && !isEmptyOC(oneColorScorePrevBlob)
                             ? oneColorScorePrevBlob
-                            : ocRowsByCustomer.find((r: any) => (r.subtype === "previous" || r.subtype === "final")) || ocRowsByCustomer[1] || ocRowsByCustomer[0];
+                            : ocRowsByCustomer.find((r: any) => (r.subtype === "previous" || r.subtype === "final"));
                     }
                 }
                 setOneColorScoreCurrentData((oneColorScoreCurBlob?.data as JsonMap) || {});
                 setOneColorScorePreviousData((oneColorScorePrevBlob?.data as JsonMap) || {});
 
-                // Fallbacks for care_comparison (average and previous/final) by customer when assessment-scoped rows are missing/empty
+                // Fallbacks for care_comparison (average and previous/final) by assessment when assessment-scoped rows are missing/empty
                 if (isEmptyData(careCompAvgRow) || isEmptyData(careCompPrevRow) || isEmptyData(careEvalPrevRow) || isEmptyData(careEvalCurRow)) {
                     const { data: careRowsByCustomer } = await supabase
                         .from("section_blobs")
                         .select("*")
                         .eq("customer_id", id)
+                        .eq("assessment_id", assessment.id)
                         .in("section", ["care_comparison", "care_evaluation_graph"])
                         .order("created_at", { ascending: false })
                         .limit(20);
                     if (careRowsByCustomer && careRowsByCustomer.length) {
                         careCompAvgRow = careCompAvgRow && !isEmptyData(careCompAvgRow)
                             ? careCompAvgRow
-                            : careRowsByCustomer.find((r: any) => r.section === "care_comparison" && r.subtype === "average") || careCompAvgRow;
+                            : careRowsByCustomer.find((r: any) => r.section === "care_comparison" && r.subtype === "average");
                         careCompPrevRow = careCompPrevRow && !isEmptyData(careCompPrevRow)
                             ? careCompPrevRow
-                            : careRowsByCustomer.find((r: any) => r.section === "care_comparison" && (r.subtype === "final" || r.subtype === "previous")) || careCompPrevRow;
+                            : careRowsByCustomer.find((r: any) => r.section === "care_comparison" && (r.subtype === "final" || r.subtype === "previous"));
                         careEvalPrevRow = careEvalPrevRow && !isEmptyData(careEvalPrevRow)
                             ? careEvalPrevRow
-                            : careRowsByCustomer.find((r: any) => r.section === "care_evaluation_graph" && (r.subtype === "previous" || r.subtype === "final")) || careEvalPrevRow;
+                            : careRowsByCustomer.find((r: any) => r.section === "care_evaluation_graph" && (r.subtype === "previous" || r.subtype === "final"));
                         careEvalCurRow = careEvalCurRow && !isEmptyData(careEvalCurRow)
                             ? careEvalCurRow
-                            : careRowsByCustomer.find((r: any) => r.section === "care_evaluation_graph" && (!r.subtype || r.subtype === "current")) || careEvalCurRow;
+                            : careRowsByCustomer.find((r: any) => r.section === "care_evaluation_graph" && (!r.subtype || r.subtype === "current"));
                     }
                 }
                 setCareComparisonAverageData((careCompAvgRow?.data as JsonMap) || {});
@@ -1497,7 +1522,7 @@ export default function CustomerDetail() {
 
                 setOneColorComparison(sectionData?.one_color_comparison || {});
 
-                // Fallbacks for one_color_comparison (average and previous/final) by customer when assessment-scoped rows are missing/empty
+                // Fallbacks for one_color_comparison (average and previous/final) by assessment when assessment-scoped rows are missing/empty
                 const isEmptyCmpRow = (row: any) => !row || !row.data || (typeof row.data === "object" && Object.keys(row.data || {}).length === 0);
                 let ocAvg = ocAvgRow;
                 let ocPrev = ocPrevRow;
@@ -1509,22 +1534,23 @@ export default function CustomerDetail() {
                         .from("section_blobs")
                         .select("*")
                         .eq("customer_id", id)
+                        .eq("assessment_id", assessment.id)
                         .in("section", ["one_color_comparison", "one_color_evaluation_graph"])
                         .order("created_at", { ascending: false })
 
                     if (ocRowsByCustomer && ocRowsByCustomer.length) {
                         ocAvg = ocAvg && !isEmptyCmpRow(ocAvg)
                             ? ocAvg
-                            : ocRowsByCustomer.find((r: any) => r.section === "one_color_comparison" && r.subtype === "average") || ocAvg;
+                            : ocRowsByCustomer.find((r: any) => r.section === "one_color_comparison" && r.subtype === "average");
                         ocPrev = ocPrev && !isEmptyCmpRow(ocPrev)
                             ? ocPrev
-                            : ocRowsByCustomer.find((r: any) => r.section === "one_color_comparison" && r.subtype === "previous") || ocPrev;
+                            : ocRowsByCustomer.find((r: any) => r.section === "one_color_comparison" && r.subtype === "previous");
                         ocEvalCurRow = ocEvalCurRow && !isEmptyEval(ocEvalCurRow)
                             ? ocEvalCurRow
-                            : ocRowsByCustomer.find((r: any) => r.section === "one_color_evaluation_graph" && (!r.subtype || r.subtype === "current")) || ocEvalCurRow;
+                            : ocRowsByCustomer.find((r: any) => r.section === "one_color_evaluation_graph" && (!r.subtype || r.subtype === "current"));
                         ocEvalPrevRow = ocEvalPrevRow && !isEmptyEval(ocEvalPrevRow)
                             ? ocEvalPrevRow
-                            : ocRowsByCustomer.find((r: any) => r.section === "one_color_evaluation_graph" && (r.subtype === "previous" || r.subtype === "final")) || ocEvalPrevRow;
+                            : ocRowsByCustomer.find((r: any) => r.section === "one_color_evaluation_graph" && (r.subtype === "previous" || r.subtype === "final"));
                     }
                 }
                 // Set with sensible fallbacks (use generic comparison average data if available)
@@ -1960,7 +1986,7 @@ export default function CustomerDetail() {
                         </div>
                     </div>
                     <LiteNoticeBanner visible={shouldShowLiteNotice} />
-                    <div className="bg-[#fff6f5] p-1 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 mt-7">
+                    <div id="pdf-overview-card" className="bg-[#fff6f5] p-1 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6 mt-7">
 
                         <div>
                             <div className="text-lg font-semibold text-slate-750">
@@ -1979,7 +2005,7 @@ export default function CustomerDetail() {
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    className="bg-[#16929F] hover:bg-emerald-700 text-white text-xs rounded-md"
+                                    className="bg-[#16929F] hover:bg-emerald-700 text-white text-xs rounded-md pdf-hide-button"
                                     onClick={handleScreenCapturePdf}>
                                     <Download className="w-4 h-4 mr-1" />
                                     PDFで保存
@@ -2023,11 +2049,7 @@ export default function CustomerDetail() {
                             <AssessmentTabs />
                             <TabsContent value="overall">
 
-                                <Card id="pdf-overview-card">
-                                    {/* <div className="mb-3 flex items-center gap-2">
-                                        <Chip tone="info">全国平均</Chip>
-                                        <Chip tone="danger">今回</Chip>
-                                    </div> */}
+                                <Card id="pdf-overview-table">
 
                                     <div className="w-full">
 
@@ -2037,7 +2059,7 @@ export default function CustomerDetail() {
                                                 <tr>
                                                     <th rowSpan={2}
                                                         className="w-32 bg-[#e5e5e5] border border-[#dddddd] px-3 py-3 text-left font-semibold">
-                                                        カテゴリー
+                                                        カテゴリ
                                                     </th>
                                                     <th colSpan={2} className="bg-[#4fb1bc] border border-[#dddddd] px-3 py-3 text-center text-white font-semibold">
                                                         全国平均
@@ -2126,15 +2148,15 @@ export default function CustomerDetail() {
 
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
                                                                 <span className="font-semibold text-[#2a6ba7]">
-                                                                    {item.prev.rating}
+                                                                    {item.prev.score > 0 ? item.prev.rating : "C"}
                                                                 </span>
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
                                                                 <span className="font-semibold text-[#2a6ba7]">
-                                                                    {item.prev.score}
+                                                                    {item.prev.score > 0 ? item.prev.score : 0}
                                                                 </span>{" "}
                                                                 <span className="text-slate-400">/ {item.denom}</span>
-                                                                {item.key === "タイム" ? (
+                                                                {item.key === "タイム" && item.prev.score > 0 ? (
                                                                     <div className="mt-2 pt-2 border-t border-[#d5e3f2] text-[#2a6ba7] font-bold">
                                                                         {prevTimeDisplay}
                                                                     </div>
@@ -2178,7 +2200,11 @@ export default function CustomerDetail() {
                                                                 <span className={cls(diffAvg)}>{arrow(diffAvg)}</span>
                                                             </td>
                                                             <td className="border border-[#dddddd] px-1 py-3 text-center bg-white">
-                                                                <span className={cls(diffPrev)}>{arrow(diffPrev)}</span>
+                                                                {item.prev.score > 0 ? (
+                                                                    <span className={cls(diffPrev)}>{arrow(diffPrev)}</span>
+                                                                ) : (
+                                                                    <span className="text-slate-400">—</span>
+                                                                )}
                                                             </td>
                                                         </tr>
                                                     );

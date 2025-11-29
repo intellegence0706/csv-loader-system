@@ -28,8 +28,8 @@ const ReferenceTimeTable: React.FC = () => {
                     <tbody className="text-sm text-slate-700">
 
                         <tr>
-                            <td className="border-r bg-[#F6F6F6] border-b border-[#e0e0e0] px-4 py-3 align-middle text-sm">オフ/フィルイン</td>
-                            <td rowSpan={2} className="border-r border-b bg-[#F6F6F6] border-[#e0e0e0] px-4 py-3 text-center text-xs">タイム</td>
+                            <td className="border-r bg-[#F6F6F6] border-b border-[#e0e0e0] px-4 py-3 align-middle text-sm font-semibold">オフ/フィルイン</td>
+                            <td rowSpan={2} className="border-r border-b bg-[#F6F6F6] border-[#e0e0e0] px-4 py-3 text-center text-xs font-semibold">タイム</td>
                             <td className="border-r border-b border-[#e0e0e0] px-4 py-3 text-center text-xs">〜17分</td>
                             <td className="border-r border-b border-[#e0e0e0] px-4 py-3 text-center text-xs">18分30秒</td>
                             <td className="border-r border-b border-[#e0e0e0] px-4 py-3 text-center text-xs">20分</td>
@@ -37,7 +37,7 @@ const ReferenceTimeTable: React.FC = () => {
                         </tr>
 
                         <tr>
-                            <td className="border-r bg-[#F6F6F6] border-b border-[#e0e0e0] px-4 py-3 align-middle text-sm">
+                            <td className="border-r bg-[#F6F6F6] border-b border-[#e0e0e0] px-4 py-3 align-middle text-sm font-semibold">
                                 プレパレーション
                             </td>
                             <td className="border-r border-b border-[#e0e0e0] px-4 py-3 text-center text-xs">〜22分</td>
@@ -52,7 +52,7 @@ const ReferenceTimeTable: React.FC = () => {
                                     <span className="font-semibold">ワンカラー</span>
                                 </div>
                             </td>
-                            <td className="border-r border-b bg-[#F6F6F6] border-[#e0e0e0] px-4 py-3 text-left text-xs">
+                            <td className="border-r border-b bg-[#F6F6F6] border-[#e0e0e0] px-4 py-3 text-left text-xs font-semibold">
                                 ベース
                             </td>
                             <td className="border-r border-b border-[#e0e0e0] px-4 py-3 text-center text-xs">〜13分</td>
@@ -61,7 +61,7 @@ const ReferenceTimeTable: React.FC = () => {
                             <td className="border-b border-[#e0e0e0] px-4 py-3 text-center text-xs">14分~</td>
                         </tr>
                         <tr>
-                            <td className="border-r bg-[#F6F6F6] border-b border-[#e0e0e0] px-4 py-3 text-left text-xs">
+                            <td className="border-r bg-[#F6F6F6] border-b border-[#e0e0e0] px-4 py-3 text-left text-xs font-semibold">
                                 カラー
                             </td>
                             <td className="border-r border-b border-[#e0e0e0] px-4 py-3 text-center text-xs">〜19分</td>
@@ -70,7 +70,7 @@ const ReferenceTimeTable: React.FC = () => {
                             <td className="border-b border-[#e0e0e0] px-4 py-3 text-center text-xs">22分~</td>
                         </tr>
                         <tr>
-                            <td className="border-r bg-[#F6F6F6] border-b border-[#e0e0e0] px-4 py-3 text-left text-xs">
+                            <td className="border-r bg-[#F6F6F6] border-b border-[#e0e0e0] px-4 py-3 text-left text-xs font-semibold">
                                 トップ
                             </td>
                             <td className="border-r border-b border-[#e0e0e0] px-4 py-3 text-center text-xs">〜9分</td>
@@ -79,7 +79,7 @@ const ReferenceTimeTable: React.FC = () => {
                             <td className="border-b border-[#e0e0e0] px-4 py-3 text-center text-xs">10分~</td>
                         </tr>
                         <tr>
-                            <td className="border-r bg-[#F6F6F6] border-b border-[#e0e0e0] px-4 py-3 text-left text-xs">
+                            <td className="border-r bg-[#F6F6F6] border-b border-[#e0e0e0] px-4 py-3 text-left text-xs font-semibold">
                                 合計
                             </td>
                             <td className="border-r border-b border-[#e0e0e0] px-4 py-3 text-center text-xs">〜41分</td>
