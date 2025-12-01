@@ -2637,7 +2637,7 @@ export default function CustomerDetail() {
                                                                                         {arrowFrom(prevComparison)}
                                                                                     </td>
                                                                                     <td className={`border border-[#d4d4d4] px-2 py-2 text-center font-semibold text-[#3d7fb6] ${yellowBgClass}`}>
-                                                                                        {prevScore || 0}
+                                                                                        {prevScore !== undefined && prevScore !== null && prevScore !== "" ? prevScore : 0}
                                                                                     </td>
                                                                                     <td className={`border border-[#d4d4d4] px-2 py-2 text-center text-[#e94444] font-semibold ${yellowBgClass}`}>{curScore || 0}</td>
                                                                                     <td
