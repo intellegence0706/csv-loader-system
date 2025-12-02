@@ -89,18 +89,18 @@ const sanitizeTime = (value: string): string =>
         .replace(/\s+/g, "");
 
 const ROW_KEY_ALIASES: Record<string, string[]> = {
-    "29-total": ["両手総合計", "総合計タイム"],
-    "29-1": ["オフ"],
-    "29-2": ["フィル", "フィルイン"],
-    "29-3": ["ケア"],
-    "29-4": ["ワンカラベース", "ワンカラー ベース", "ベース"],
-    "29-5": ["ワンカラカラー", "ワンカラー カラー", "カラー"],
-    "29-6": ["ワンカラトップ", "ワンカラー トップ", "トップ"],
-    "29-7": ["ワンカラ合計", "ワンカラー 合計", "合計"],
+    "29-total": ["両手総合計", "総合計タイム", "合計タイム", "[合計タイム]29", "合計タイム29"],
+    "29-1": ["オフ", "[オフ]分", "[オフ]秒"],
+    "29-2": ["フィル", "フィルイン", "[フィル]分", "[フィル]秒"],
+    "29-3": ["ケア", "[ケア]分", "[ケア]秒"],
+    "29-4": ["ワンカラベース", "ワンカラー ベース", "ベース", "[ワンカラ/ベース]分", "[ワンカラ/ベース]秒"],
+    "29-5": ["ワンカラカラー", "ワンカラー カラー", "カラー", "[ワンカラ/カラー]分", "[ワンカラ/カラー]秒"],
+    "29-6": ["ワンカラトップ", "ワンカラー トップ", "トップ", "[ワンカラ/トップ]分", "[ワンカラ/トップ]秒"],
+    "29-7": ["ワンカラ合計", "ワンカラー 合計", "合計", "[ワンカラ/合計]", "[ワンカラ/合計]分", "[ワンカラ/合計]秒"],
 };
 
 const COMPARISON_KEY_ALIASES: Record<string, string[]> = {
-    "29-total": ["両手総合計", "総合評価", "タイム"],
+    "29-total": ["両手総合計", "総合評価", "タイム", "合計タイム", "[合計タイム]29", "合計タイム29"],
     "29-1": ["オフ"],
     "29-2": ["フィル"],
     "29-3": ["ケア"],
@@ -251,9 +251,76 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
         };
 
         const extractTime = (map: JsonMap | undefined, def: TimeRowDefinition) => {
-            const tokens = buildTokens(def);
-            if (!map || !tokens.length) return "";
-            const entries = collectEntries(map, tokens);
+            if (!map) return "";
+
+            const entries: Array<{ rawKey: string; normalizedKey: string; value: JsonPrimitive }> = [];
+
+            // For 29-7, directly search for [ワンカラ/合計]分 and [ワンカラ/合計]秒
+            if (def.id === "29-7") {
+                const targetKeys = ["[ワンカラ/合計]分", "[ワンカラ/合計]秒", "ワンカラ/合計分", "ワンカラ/合計秒"];
+                for (const [rawKey, value] of Object.entries(map)) {
+                    const keyNorm = normalizeKey(rawKey);
+                    // Check if key matches any target pattern
+                    if (targetKeys.some(target => {
+                        const targetNorm = normalizeKey(target);
+                        return keyNorm === targetNorm || keyNorm.includes(targetNorm) || targetNorm.includes(keyNorm);
+                    }) || /ワンカラ合計分|ワンカラ合計秒/.test(keyNorm)) {
+                        entries.push({
+                            rawKey,
+                            normalizedKey: keyNorm,
+                            value,
+                        });
+                    }
+                }
+            }
+            // For 29-total, directly search for [両手総合計]分 and [両手総合計]秒
+            else if (def.id === "29-total") {
+                const targetKeys = ["[両手総合計]分", "[両手総合計]秒", "両手総合計分", "両手総合計秒", "総合計タイム"];
+                for (const [rawKey, value] of Object.entries(map)) {
+                    const keyNorm = normalizeKey(rawKey);
+                    // Check if key matches any target pattern
+                    if (targetKeys.some(target => {
+                        const targetNorm = normalizeKey(target);
+                        return keyNorm === targetNorm || keyNorm.includes(targetNorm) || targetNorm.includes(keyNorm);
+                    }) || /両手総合計分|両手総合計秒|総合計タイム/.test(keyNorm)) {
+                        entries.push({
+                            rawKey,
+                            normalizedKey: keyNorm,
+                            value,
+                        });
+                    }
+                }
+            }
+            // For other rows, use the original token-based approach
+            else {
+                const tokens = buildTokens(def);
+                const aliases = ROW_KEY_ALIASES[def.id] || [];
+
+                // Collect entries using tokens
+                entries.push(...collectEntries(map, tokens));
+
+                // Also try to find entries using aliases
+                if (entries.length === 0) {
+                    for (const alias of aliases) {
+                        const aliasNorm = normalizeKey(alias);
+                        for (const [rawKey, value] of Object.entries(map)) {
+                            const keyNorm = normalizeKey(rawKey);
+                            // Check if key matches alias (with or without 分/秒 suffix)
+                            if (keyNorm.includes(aliasNorm) || aliasNorm.includes(keyNorm)) {
+                                // Avoid duplicates
+                                if (!entries.some(e => e.rawKey === rawKey)) {
+                                    entries.push({
+                                        rawKey,
+                                        normalizedKey: keyNorm,
+                                        value,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if (!entries.length) return "";
             return combineTimeFragments(entries.map(({ rawKey, value }) => ({ key: rawKey, value })));
         };
@@ -267,12 +334,22 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                 if (parsed !== null) return parsed;
             }
 
-            // Try aliases from COMPARISON_KEY_ALIASES
+            // Try aliases from COMPARISON_KEY_ALIASES (both exact and normalized)
             const aliases = COMPARISON_KEY_ALIASES[def.id] || [];
             for (const alias of aliases) {
+                // Try exact match
                 if (map[alias] !== undefined && map[alias] !== null) {
                     const parsed = parseComparisonValue(map[alias]);
                     if (parsed !== null) return parsed;
+                }
+                // Try normalized match
+                const aliasNorm = normalizeKey(alias);
+                for (const [key, raw] of Object.entries(map)) {
+                    const keyNorm = normalizeKey(key);
+                    if (keyNorm === aliasNorm || keyNorm.includes(aliasNorm) || aliasNorm.includes(keyNorm)) {
+                        const parsed = parseComparisonValue(raw);
+                        if (parsed !== null) return parsed;
+                    }
                 }
             }
 
@@ -282,8 +359,15 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
 
             for (const [key, raw] of Object.entries(map)) {
                 const keyNorm = normalizeKey(key);
-                // Require exact token match, not just includes
-                if (!tokens.some((token) => keyNorm === token)) continue;
+                // For "29-total", also check if key contains "合計タイム" or "29"
+                if (def.id === "29-total") {
+                    if (keyNorm.includes("合計タイム") || keyNorm.includes("29") || keyNorm.includes("総合計")) {
+                        const parsed = parseComparisonValue(raw);
+                        if (parsed !== null) return parsed;
+                    }
+                }
+                // Require exact token match for other cases
+                if (!tokens.some((token) => keyNorm === token || keyNorm.includes(token) || token.includes(keyNorm))) continue;
                 const parsed = parseComparisonValue(raw);
                 if (parsed !== null) return parsed;
             }
@@ -438,17 +522,102 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
         );
     };
 
-    const renderEvaluationGraph = (row: TimeDetailRow) => {
-        const activeBands = new Set<number>();
-        SERIES_META.forEach((meta) => {
-            const rank = row.ranks[meta.key];
-            if (rank && rank >= 1 && rank <= RANK_BANDS.length) {
-                activeBands.add(rank);
-            }
-        });
+    const parseTimeToSeconds = (value: JsonPrimitive): number | null => {
+        if (value === null || value === undefined) return null;
 
-        const hasRank = activeBands.size > 0;
-        if (!hasRank) {
+        const str = String(value).trim();
+        if (!str) return null;
+
+        // Try to parse as "XX分YY秒" format
+        const timeMatch = str.match(/(\d+)分\s*(\d+)秒/);
+        if (timeMatch) {
+            const minutes = parseInt(timeMatch[1], 10);
+            const seconds = parseInt(timeMatch[2], 10);
+            if (!isNaN(minutes) && !isNaN(seconds)) {
+                return minutes * 60 + seconds;
+            }
+        }
+
+        // Try to parse as numeric value (assuming seconds)
+        const num = parseNumericValue(value);
+        if (num !== null) return num;
+
+        return null;
+    };
+
+    const extractTimeValue = (map: JsonMap | undefined, def: TimeRowDefinition): number | null => {
+        if (!map) return null;
+
+        // First, try exact match with the row ID (e.g., "29-1", "29-2")
+        if (def.id && map[def.id] !== undefined && map[def.id] !== null) {
+            const seconds = parseTimeToSeconds(map[def.id]);
+            if (seconds !== null) return seconds;
+        }
+
+        // Try aliases from ROW_KEY_ALIASES
+        const aliases = ROW_KEY_ALIASES[def.id] || [];
+        for (const alias of aliases) {
+            if (map[alias] !== undefined && map[alias] !== null) {
+                const seconds = parseTimeToSeconds(map[alias]);
+                if (seconds !== null) return seconds;
+            }
+        }
+
+        // Try normalized key matching - look for keys containing "分" and "秒"
+        const tokens = buildTokens(def);
+        if (!tokens.length) return null;
+
+        let minutes: number | null = null;
+        let seconds: number | null = null;
+
+        for (const [key, raw] of Object.entries(map)) {
+            const keyNorm = normalizeKey(key);
+            if (!tokens.some((token) => keyNorm.includes(token))) continue;
+
+            // Check if key contains "分" (minutes)
+            if (/分/.test(key) && !/秒/.test(key)) {
+                const num = parseNumericValue(raw);
+                if (num !== null) minutes = num;
+            }
+            // Check if key contains "秒" (seconds)
+            else if (/秒/.test(key)) {
+                const num = parseNumericValue(raw);
+                if (num !== null) seconds = num;
+            }
+            // Try to parse as time string
+            else {
+                const parsed = parseTimeToSeconds(raw);
+                if (parsed !== null) return parsed;
+            }
+        }
+
+        // Combine minutes and seconds if found
+        if (minutes !== null || seconds !== null) {
+            const mm = minutes || 0;
+            const ss = seconds || 0;
+            return mm * 60 + ss;
+        }
+
+        return null;
+    };
+
+    const timeToRankPosition = (timeValue: number | null): number | null => {
+
+        if (timeValue === null) return null;
+        if (timeValue <= 400) return 4;
+        if (timeValue <= 700) return 3;
+        if (timeValue <= 1100) return 2;
+        return 1;
+    };
+
+    const renderEvaluationGraph = (row: TimeDetailRow) => {
+
+        const currentRank = row.ranks.current;
+        const previousRank = row.ranks.previous;
+
+        const hasData = currentRank !== null || previousRank !== null;
+
+        if (!hasData) {
             return (
                 <div className="flex h-12 w-full items-center px-2" aria-hidden="true">
                     <div className="h-[28px] w-full bg-[#fce2de]" />
@@ -476,47 +645,42 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                         />
                     );
                 })}
-                {SERIES_META.map((series) => {
-                    const rank = row.ranks[series.key];
-                    if (!rank || rank < 1 || rank > RANK_BANDS.length) return null;
-                    const columnWidth = 100 / RANK_BANDS.length;
-                    const centerPercent = (rank - 0.5) * columnWidth;
-                    const topPosition = `calc(50% + ${series.offset}px)`;
 
+                {currentRank !== null && currentRank >= 1 && currentRank <= RANK_BANDS.length && (
+                    <div
+                        key={`${row.id}-current`}
+                        className="absolute h-[2px]"
+                        style={{
+                            left: "8px",
+                            width: `calc(${((currentRank - 0.5) * (100 / RANK_BANDS.length))}% + 14px)`,
+                            top: "calc(50% - 5px)",
+                            backgroundColor: "#F24822",
+                            opacity: 0.85,
+                            height: "4px"
+                        }}
+                    />
+                )}
 
-                    return (
-                        <div
-                            key={`${row.id}-${series.key}`}
-                            className="absolute h-[2px]"
-                            style={{
-                                left: "8px",
-                                width: `calc(${centerPercent}% + 14px)`,
-                                top: topPosition,
-                                backgroundColor: series.color,
-                                opacity: 0.85,
-                                height: "4px"
-                            }}
-                        >
-                        </div>
-                    );
-                })}
+                {previousRank !== null && previousRank >= 1 && previousRank <= RANK_BANDS.length && (
+                    <div
+                        key={`${row.id}-previous`}
+                        className="absolute h-[2px]"
+                        style={{
+                            left: "8px",
+                            width: `calc(${((previousRank - 0.5) * (100 / RANK_BANDS.length))}% + 14px)`,
+                            top: "calc(50% + 5px)",
+                            backgroundColor: "#436A8A",
+                            opacity: 0.85,
+                            height: "4px"
+                        }}
+                    />
+                )}
             </div>
         );
     };
 
     return (
         <div className="w-full">
-            <div className="mb-2 flex justify-end gap-4 text-[11px] text-slate-600">
-                {SERIES_META.map((series) => (
-                    <span key={series.key} className="flex items-center gap-2">
-                        <span
-                            className="h-[2px] w-6 rounded-full"
-                            style={{ backgroundColor: series.color }}
-                        />
-                        {series.label}
-                    </span>
-                ))}
-            </div>
             <table className="w-full border-collapse text-[11px] text-slate-700">
                 <thead>
                     <tr>

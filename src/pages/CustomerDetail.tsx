@@ -2075,7 +2075,6 @@ export default function CustomerDetail() {
                                                     </th>
                                                 </tr>
 
-
                                                 <tr>
                                                     <th className="bg-[#6ebec7] border border-[#dddddd] px-3 py-2 text-center text-white text-xs">
                                                         評価ランク
@@ -2148,14 +2147,14 @@ export default function CustomerDetail() {
 
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
                                                                 <span className="font-semibold text-[#2a6ba7]">
-                                                                    {item.prev.score > 0 ? item.prev.rating : "C"}
+                                                                    {item.prev.rating === "C" || String(item.prev.rating) === "C" ? "—" : item.prev.rating}
                                                                 </span>
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-white">
                                                                 <span className="font-semibold text-[#2a6ba7]">
-                                                                    {item.prev.score > 0 ? item.prev.score : 0}
-                                                                </span>{" "}
-                                                                <span className="text-slate-400">/ {item.denom}</span>
+                                                                    {item.prev.score === 0 ? "—" : item.prev.score}
+                                                                </span>
+                                                                <span className="text-slate-400"> / {item.denom}</span>
                                                                 {item.key === "タイム" && item.prev.score > 0 ? (
                                                                     <div className="mt-2 pt-2 border-t border-[#d5e3f2] text-[#2a6ba7] font-bold">
                                                                         {prevTimeDisplay}
@@ -2383,11 +2382,11 @@ export default function CustomerDetail() {
                                                                 <span className="text-slate-400">/ {denom}</span>
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center">
-                                                                <span className="font-semibold text-[#3d7fb6]">{prevRank}</span>
+                                                                <span className="font-semibold text-[#3d7fb6]">{prevRank === "C" || String(prevRank) === "C" ? "—" : prevRank}</span>
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center">
-                                                                <span className="font-semibold text-[#3d7fb6]">{prevScore}</span>{" "}
-                                                                <span className="text-slate-400">/ {denom}</span>
+                                                                <span className="font-semibold text-[#3d7fb6]">{prevScore === 0 ? "—" : prevScore}</span>
+                                                                <span className="text-slate-400"> / {denom}</span>
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center">
                                                                 <span className="font-semibold text-[#e94444]">{curRank}</span>
@@ -2637,7 +2636,7 @@ export default function CustomerDetail() {
                                                                                         {arrowFrom(prevComparison)}
                                                                                     </td>
                                                                                     <td className={`border border-[#d4d4d4] px-2 py-2 text-center font-semibold text-[#3d7fb6] ${yellowBgClass}`}>
-                                                                                        {prevScore !== undefined && prevScore !== null && prevScore !== "" ? prevScore : 0}
+                                                                                        {prevScore === 0 || prevScore === null || prevScore === undefined ? "—" : prevScore}
                                                                                     </td>
                                                                                     <td className={`border border-[#d4d4d4] px-2 py-2 text-center text-[#e94444] font-semibold ${yellowBgClass}`}>{curScore || 0}</td>
                                                                                     <td
@@ -3093,11 +3092,11 @@ export default function CustomerDetail() {
                                                         </td>
 
                                                         <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#eef3f8]">
-                                                            <span className="font-semibold text-[#3d7fb6]">{prevOnlyRank}</span>
+                                                            <span className="font-semibold text-[#3d7fb6]">{prevOnlyRank === "C" || String(prevOnlyRank) === "C" ? "—" : prevOnlyRank}</span>
                                                         </td>
                                                         <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#eef3f8]">
-                                                            <span className="font-semibold text-[#3d7fb6]">{prevOnlyScore}</span>{" "}
-                                                            <span className="text-slate-400">/ {denom}</span>
+                                                            <span className="font-semibold text-[#3d7fb6]">{prevOnlyScore === 0 ? "—" : prevOnlyScore}</span>
+                                                            <span className="text-slate-400"> / {denom}</span>
                                                         </td>
 
                                                         <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#fff7f7]">
@@ -3314,7 +3313,7 @@ export default function CustomerDetail() {
                                                                             </td>
                                                                             <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>{compToArrow(prevComparison)}</td>
                                                                             <td className={`border border-[#d4d4d4] px-2 py-2 text-center ${yellowBgClass}`}>
-                                                                                <span className="text-[#3D80B8]">{prevScore || 0}</span>
+                                                                                <span className="text-[#3D80B8]">{prevScore === 0 || prevScore === null || prevScore === undefined ? "—" : prevScore}</span>
                                                                             </td>
                                                                             <td className={`border border-[#d4d4d4] px-2 py-2 text-center text-[#e94444] font-semibold ${yellowBgClass}`}>{curScore || 0}</td>
                                                                             <td colSpan={4} className="border border-[#d4d4d4] px-1 py-1 align-middle">
@@ -3583,17 +3582,16 @@ export default function CustomerDetail() {
                                                             </td>
 
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#eef3f8]">
-                                                                <span className="font-semibold text-[#3d7fb6]">{prevOnlyRank}</span>
+                                                                <span className="font-semibold text-[#3d7fb6]">{prevOnlyRank === "C" || String(prevOnlyRank) === "C" ? "—" : prevOnlyRank}</span>
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#eef3f8]">
-                                                                <span className="font-semibold text-[#138495]">{avgScore}</span>{" "}
-                                                                <span className="text-slate-400">/ {denom}</span>
-                                                                <div className="mt-2 pt-2 border-t border-[#dddddd] text-[#138495] font-bold">
-                                                                    {prevTimeDisplay}
-                                                                </div>
-
-                                                                {/* <span className="font-semibold text-[#3d7fb6]">{prevOnlyScore}</span>{" "}
-                                                            <span className="text-slate-400">/ {denom}</span> */}
+                                                                <span className="font-semibold text-[#138495]">{prevOnlyScore === 0 ? "—" : prevOnlyScore}</span>
+                                                                <span className="text-slate-400"> / {denom}</span>
+                                                                {prevOnlyScore > 0 && (
+                                                                    <div className="mt-2 pt-2 border-t border-[#dddddd] text-[#138495] font-bold">
+                                                                        {prevTimeDisplay}
+                                                                    </div>
+                                                                )}
                                                             </td>
                                                             <td className="border border-[#dddddd] px-3 py-3 text-center bg-[#fff7f7]">
                                                                 <span className="font-semibold text-[#e94444]">{curRank}</span>
