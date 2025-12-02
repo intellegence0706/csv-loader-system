@@ -295,8 +295,6 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
             else {
                 const tokens = buildTokens(def);
                 const aliases = ROW_KEY_ALIASES[def.id] || [];
-
-                // Collect entries using tokens
                 entries.push(...collectEntries(map, tokens));
 
                 // Also try to find entries using aliases
@@ -381,6 +379,44 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
             hints: string[],
         ): number | null => {
             if (!map) return null;
+
+            // For 29-total, try direct key matches first
+            if (def.id === "29-total") {
+                // Try exact matches for 29-total evaluation graph keys
+                const directKeys = ["29", "29-total", "合計タイム", "総合計タイム", "両手総合計"];
+                for (const directKey of directKeys) {
+                    if (map[directKey] !== undefined && map[directKey] !== null) {
+                        // Check if key matches hints
+                        if (hints.length) {
+                            const keyNorm = normalizeKey(directKey);
+                            const hintMatches = hints.some(hint => {
+                                const hintNorm = normalizeKey(hint);
+                                return keyNorm.includes(hintNorm) || hintNorm.includes(keyNorm);
+                            });
+                            if (!hintMatches) continue;
+                        }
+                        const parsed = parseRankToken(map[directKey], normalizeKey(directKey));
+                        if (parsed !== null) return parsed;
+                    }
+                }
+                // Try normalized key matching for 29-total
+                for (const [key, raw] of Object.entries(map)) {
+                    const keyNorm = normalizeKey(key);
+                    if (keyNorm.includes("29") || keyNorm.includes("合計タイム") || keyNorm.includes("総合計")) {
+                        // Check if key matches hints
+                        if (hints.length) {
+                            const hintMatches = hints.some(hint => {
+                                const hintNorm = normalizeKey(hint);
+                                return keyNorm.includes(hintNorm) || hintNorm.includes(keyNorm);
+                            });
+                            if (!hintMatches) continue;
+                        }
+                        const parsed = parseRankToken(raw, keyNorm);
+                        if (parsed !== null) return parsed;
+                    }
+                }
+            }
+
             const tokens = buildTokens(def);
             if (!tokens.length) return null;
             const attempt = (hintList: string[]) => {
@@ -470,9 +506,11 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                 extractRank(evaluationAverage, def, ["全国平均", "平均"]) ??
                 extractRank(evaluationCurrent, def, ["全国平均", "平均"]) ??
                 extractRank(evaluationPrevious, def, ["全国平均", "平均"]);
-            const previousRank =
-                extractRank(evaluationPrevious, def, ["前回", "previous", "final"]) ??
-                extractRank(evaluationCurrent, def, ["前回", "previous", "final"]);
+            // Only get previous rank from evaluationPrevious, don't fallback to evaluationCurrent
+            // 「前回タイム評価グラフ」: RU~SB列 (evaluationPrevious only)
+            const previousRank = extractRank(evaluationPrevious, def, ["前回", "previous", "final"]);
+            // Only get current rank from evaluationCurrent
+            // 「今回の時間評価グラフ」: QO~QV列 (evaluationCurrent only)
             const currentRank = extractRank(evaluationCurrent, def, ["今回", "current"]);
 
             base.ranks = {
@@ -614,7 +652,6 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
 
         const currentRank = row.ranks.current;
         const previousRank = row.ranks.previous;
-
         const hasData = currentRank !== null || previousRank !== null;
 
         if (!hasData) {
@@ -627,7 +664,7 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
 
         return (
             <div className="relative h-14 rounded bg-[#f8fbfd] px-3 py-2 overflow-hidden">
-                {/* Vertical dotted guides for each band */}
+
                 {RANK_BANDS.map((band, index) => {
                     const columnWidth = 100 / RANK_BANDS.length;
                     const centerPercent = (index + 0.5) * columnWidth;
@@ -656,7 +693,7 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                             top: "calc(50% - 5px)",
                             backgroundColor: "#F24822",
                             opacity: 0.85,
-                            height: "4px"
+                            height: "6px"
                         }}
                     />
                 )}
@@ -671,7 +708,7 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                             top: "calc(50% + 5px)",
                             backgroundColor: "#436A8A",
                             opacity: 0.85,
-                            height: "4px"
+                            height: "6px"
                         }}
                     />
                 )}
@@ -725,16 +762,16 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                             比較
                         </th>
                         <th className="bg-[#5eb9c5] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
-                            スコア
+                            タイム
                         </th>
                         <th className="bg-[#7AA9D0] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
                             比較
                         </th>
                         <th className="bg-[#7AA9D0] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
-                            スコア
+                            タイム
                         </th>
                         <th className="bg-[#ffb8b6] px-1 py-1 text-center text-[10px] text-white border border-[#d4d4d4]">
-                            スコア
+                            タイム
                         </th>
                         {RANK_BANDS.map((band) => (
                             <th
