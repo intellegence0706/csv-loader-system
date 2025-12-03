@@ -566,7 +566,6 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
         const str = String(value).trim();
         if (!str) return null;
 
-        // Try to parse as "XX分YY秒" format
         const timeMatch = str.match(/(\d+)分\s*(\d+)秒/);
         if (timeMatch) {
             const minutes = parseInt(timeMatch[1], 10);
@@ -576,7 +575,6 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
             }
         }
 
-        // Try to parse as numeric value (assuming seconds)
         const num = parseNumericValue(value);
         if (num !== null) return num;
 
@@ -585,14 +583,11 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
 
     const extractTimeValue = (map: JsonMap | undefined, def: TimeRowDefinition): number | null => {
         if (!map) return null;
-
-        // First, try exact match with the row ID (e.g., "29-1", "29-2")
         if (def.id && map[def.id] !== undefined && map[def.id] !== null) {
             const seconds = parseTimeToSeconds(map[def.id]);
             if (seconds !== null) return seconds;
         }
 
-        // Try aliases from ROW_KEY_ALIASES
         const aliases = ROW_KEY_ALIASES[def.id] || [];
         for (const alias of aliases) {
             if (map[alias] !== undefined && map[alias] !== null) {
@@ -600,8 +595,6 @@ const TimeDetailCategoryTable: React.FC<TimeDetailCategoryTableProps> = ({
                 if (seconds !== null) return seconds;
             }
         }
-
-        // Try normalized key matching - look for keys containing "分" and "秒"
         const tokens = buildTokens(def);
         if (!tokens.length) return null;
 

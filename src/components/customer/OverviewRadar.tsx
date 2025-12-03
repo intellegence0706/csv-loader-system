@@ -53,12 +53,12 @@ export default function OverviewRadar({ radarRows, structuredData }: OverviewRad
 
             <div className="relative h-[600px] w-full pb-16">
                 <ResponsiveContainer width="100%" height="100%">
-                    <RadarChart data={radarRows} startAngle={90} endAngle={-270} margin={{ top: 80, right: 80, bottom: 80, left: 80 }}>
-                        <PolarGrid gridType="polygon" radialLines polarRadius={[40, 80, 120, 160, 200]} stroke="#d0d0d0" strokeOpacity={1} />
+                    <RadarChart data={radarRows} startAngle={90} endAngle={-270} margin={{ top: 24, right: 24, bottom: 24, left: 24 }}>
+                        <PolarGrid gridType="polygon" radialLines polarRadius={[20, 40, 60, 80, 100, 120, 140, 160, 180, 200]} stroke="#d0d0d0" strokeOpacity={1} />
                         <PolarAngleAxis dataKey="name" tick={false} />
-                        <PolarRadiusAxis angle={90} domain={[0, 100]} tickCount={5} tick={false} axisLine={false} />
+                        <PolarRadiusAxis angle={90} domain={[0, 100]} tickCount={10} tick={false} axisLine={false} />
 
-                        <Radar
+                        {/* <Radar
                             name="全国平均"
                             dataKey="National Average"
                             stroke="#64CBD3"
@@ -66,7 +66,7 @@ export default function OverviewRadar({ radarRows, structuredData }: OverviewRad
                             fill="#64CBD3"
                             fillOpacity={0}
                             dot={{ r: 2, fill: "#64CBD3", stroke: "#64CBD3", strokeWidth: 2 }}
-                        />
+                        /> */}
 
                         <Radar
                             name="前回"
@@ -93,60 +93,61 @@ export default function OverviewRadar({ radarRows, structuredData }: OverviewRad
                 <div className="pointer-events-none absolute inset-0">
                     <div className="absolute top-[5%] left-1/2 -translate-x-1/2 text-center">
                         <div className="text-[#00bcd4] text-sm font-medium">総合</div>
-                        <div className="mt-0.5 text-[11px] text-[#00bcd4]">1320</div>
+                        {/* <div className="mt-0.5 text-[11px] text-[#00bcd4]">1320</div> */}
                     </div>
-                    <div className="absolute left-[69%] top-[45%] -translate-y-1/2 text-center">
+                    <div className="absolute left-[70%] top-[45%] -translate-y-1/2 text-center">
                         <div className="text-[#00bcd4] text-sm font-medium">ケア</div>
-                        <div className="mt-0.5 text-[11px] text-[#00bcd4]">410</div>
+                        {/* <div className="mt-0.5 text-[11px] text-[#00bcd4]">410</div> */}
                     </div>
-                    <div className="absolute top-[78%] left-1/2 -translate-x-1/2 text-center">
-                        <div className="mt-0.5 text-[11px] text-[#00bcd4]">610</div>
+                    <div className="absolute top-[79%] left-1/2 -translate-x-1/2 text-center">
+                        {/* <div className="mt-0.5 text-[11px] text-[#00bcd4]">610</div> */}
                         <div className=" text-[#00bcd4] text-sm font-medium">ワンカラー</div>
                     </div>
-                    <div className="absolute left-[27%] top-[45%] -translate-y-1/2 text-center">
+                    <div className="absolute left-[26%] top-[45%] -translate-y-1/2 text-center">
                         <div className="text-[#00bcd4] text-sm font-medium">タイム</div>
-                        <div className="mt-0.5 text-[11px]  text-[#00bcd4]">300</div>
+                        {/* <div className="mt-0.5 text-[11px]  text-[#00bcd4]">300</div> */}
                     </div>
-                    {/* <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[14%]">1320</div>
-                    <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[24%]">1056</div>
-                    <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[30%]">792</div>
-                    <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[37%]">528</div>
-                    <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[44%]">264</div>
-                    <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[49%]">0</div>
-                    <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[56%]">122</div>
-                    <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[62%]">244</div>
-                    <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[68%]">366</div>
-                    <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[76%]">488</div>
-                    <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[84%]">610</div>
-                    <div className="absolute top-[50.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[35%]">93分</div>
-                    <div className="absolute top-[50.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[38%]">105分</div>
-                    <div className="absolute top-[50.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[42%]">117分</div>
-                    <div className="absolute top-[50.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[46%]">130分</div>
-                    <div className="absolute top-[50.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[52.5%]">82</div>
-                    <div className="absolute top-[50.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[56%]">164</div>
-                    <div className="absolute top-[50.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[61%]">246</div>
-                    <div className="absolute top-[50.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[65%]">328</div> */}
-                </div>
-
-                <div className="pointer-events-none absolute inset-x-6 bottom-2">
-                    <div className="rounded-lg border border-slate-200 bg-white/85 px-3 py-2 text-[11px] text-slate-600 backdrop-blur">
-                        {structuredData.map((row) => (
-                            <div key={row.key} className="flex flex-wrap items-center justify-between gap-2">
-                                <span className="text-xs font-semibold text-slate-700">{row.key}</span>
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <span className="text-[#64CBD3] font-medium">
-                                        全国平均: {formatScore(row.avg?.score)} / {row.denom}
-                                    </span>
-                                    <span className="text-[#4075B5] font-medium">
-                                        前回: {formatScore(row.prev?.score)} / {row.denom}
-                                    </span>
-                                    <span className="text-[#FF6B6B] font-medium">
-                                        今回: {formatScore(row.curr?.score)} / {row.denom}
-                                    </span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[10%]">100</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[13.5%]">90</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[17.5%]">80</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[21.5%]">70</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[25%]">60</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[28.5%]">50</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[32%]">40</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[35%]">30</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[38.5%]">20</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[41.5%]">10</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">0</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[47.5%]">10</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[50.5%]">20</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[53.5%]">30</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[57.5%]">40</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[60.5%]">50</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[63.5%]">60</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[67.5%]">70</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[70.5%]">80</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[74%]">90</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[77.5%]">100</div>
+                    <div className="absolute left-[31%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">100</div>
+                    <div className="absolute left-[33%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">90</div>
+                    <div className="absolute left-[35%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">80</div>
+                    <div className="absolute left-[37%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">70</div>
+                    <div className="absolute left-[38.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">60</div>
+                    <div className="absolute left-[40.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">50</div>
+                    <div className="absolute left-[42.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">40</div>
+                    <div className="absolute left-[44.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">30</div>
+                    <div className="absolute left-[46%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">20</div>
+                    <div className="absolute left-[48%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">10</div>
+                    <div className="absolute left-[52%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">10</div>
+                    <div className="absolute left-[54%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">20</div>
+                    <div className="absolute left-[55.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">30</div>
+                    <div className="absolute left-[57.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">40</div>
+                    <div className="absolute left-[59.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">50</div>
+                    <div className="absolute left-[61.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">60</div>
+                    <div className="absolute left-[63.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">70</div>
+                    <div className="absolute left-[65.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">80</div>
+                    <div className="absolute left-[67%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">90</div>
+                    <div className="absolute left-[69%] -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">100</div>
                 </div>
             </div>
         </div>

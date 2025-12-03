@@ -18,18 +18,20 @@ type TimeRadarProps = {
     averageDetailData?: Record<string, any>;
     previousDetailData?: Record<string, any>;
     currentDetailData?: Record<string, any>;
+    timeRadarChartCurrent?: Record<string, any>;
+    timeRadarChartPrevious?: Record<string, any>;
 };
 
 const axes: AxisKeyTime[] = ["合計タイム", "オフ／フィル", "ケア", "ベース", "カラー", "トップ"];
 
 // Fixed maximum values for each axis (in seconds)
 const FIXED_MAX_BY_AXIS: Record<AxisKeyTime, number> = {
-    "合計タイム": 80 * 60,      // 80分 = 4800秒
-    "オフ／フィル": 17 * 60,     // 17分 = 1020秒
-    "ケア": 22 * 60,             // 22分 = 1320秒
-    "ベース": 13 * 60,           // 13分 = 780秒
-    "カラー": 19 * 60,           // 19分 = 1140秒
-    "トップ": 9 * 60,            // 9分 = 540秒
+    "合計タイム": 80 * 60,
+    "オフ／フィル": 17 * 60,
+    "ケア": 22 * 60,
+    "ベース": 13 * 60,
+    "カラー": 19 * 60,
+    "トップ": 9 * 60,
 };
 
 const legendItems = [
@@ -141,6 +143,72 @@ const parseNumericValue = (value: any): number | null => {
     return null;
 };
 
+// Helper function to extract percentage value from radar chart data (SK~SP for current, SQ~SV for previous)
+// Column order: SK=合計タイム, SL=オフ／フィル, SM=ケア, SN=ベース, SO=カラー, SP=トップ (current)
+// Column order: SQ=合計タイム, SR=オフ／フィル, SS=ケア, ST=ベース, SU=カラー, SV=トップ (previous)
+// These are already percentages, so use them directly
+const getRadarPercentage = (map: Record<string, any> | undefined, categoryName: string): number => {
+    if (!map) return 0;
+
+    // Normalize function for better matching
+    const normalize = (s: string) =>
+        (typeof s === "string" ? s : String(s))
+            .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0))
+            .replace(/[‐‑–—−ーｰ－]/g, "-")
+            .replace(/[［］【】\[\]\(\)\s\u3000]/g, "")
+            .toLowerCase();
+
+    const normalizedCategory = normalize(categoryName);
+
+    // Try exact match first
+    for (const [key, value] of Object.entries(map)) {
+        const normalizedKey = normalize(key);
+        if (normalizedKey === normalizedCategory) {
+            const val = parseNumericValue(value);
+            if (val !== null && val !== undefined && !isNaN(val)) {
+                return Math.max(0, Math.min(100, val));
+            }
+        }
+    }
+
+    // Try partial match (key includes category or vice versa)
+    for (const [key, value] of Object.entries(map)) {
+        const normalizedKey = normalize(key);
+        if (normalizedKey.includes(normalizedCategory) || normalizedCategory.includes(normalizedKey)) {
+            const val = parseNumericValue(value);
+            if (val !== null && val !== undefined && !isNaN(val)) {
+                return Math.max(0, Math.min(100, val));
+            }
+        }
+    }
+
+    // Try specific aliases for each category
+    const aliases: Record<AxisKeyTime, string[]> = {
+        "合計タイム": ["合計タイム", "総合計タイム", "総合計", "両手総合計"],
+        "オフ／フィル": ["オフ／フィル", "オフフィル", "オフ", "フィル"],
+        "ケア": ["ケア"],
+        "ベース": ["ベース", "ワンカラベース", "ワンカラー ベース"],
+        "カラー": ["カラー", "ワンカラカラー", "ワンカラー カラー"],
+        "トップ": ["トップ", "ワンカラトップ", "ワンカラー トップ"],
+    };
+
+    const categoryAliases = aliases[categoryName as AxisKeyTime] || [categoryName];
+    for (const alias of categoryAliases) {
+        const normalizedAlias = normalize(alias);
+        for (const [key, value] of Object.entries(map)) {
+            const normalizedKey = normalize(key);
+            if (normalizedKey.includes(normalizedAlias) || normalizedAlias.includes(normalizedKey)) {
+                const val = parseNumericValue(value);
+                if (val !== null && val !== undefined && !isNaN(val)) {
+                    return Math.max(0, Math.min(100, val));
+                }
+            }
+        }
+    }
+
+    return 0;
+};
+
 const parseTimeToSeconds = (value: any): number => {
     if (typeof value === "number") return value;
     if (!value) return 0;
@@ -213,79 +281,34 @@ export default function TimeRadar({
     currentTotal,
     averageDetailData,
     previousDetailData,
-    currentDetailData
+    currentDetailData,
+    timeRadarChartCurrent,
+    timeRadarChartPrevious
 }: TimeRadarProps) {
-    const nationalTotal = pickAverageTimeScore(avgData, nationalFallback);
-    const prevTotal = previousTotal || nationalTotal;
-    const curTotal = currentTotal;
-
-    // Key aliases for each axis category
-    const axisAliases: Record<AxisKeyTime, string[]> = {
-        "合計タイム": ["両手総合計", "総合計タイム", "総合計", "合計タイム"],
-        "オフ／フィル": ["オフ", "フィル", "フィルイン"],
-        "ケア": ["ケア"],
-        "ベース": ["ワンカラベース", "ワンカラー ベース", "ベース"],
-        "カラー": ["ワンカラカラー", "ワンカラー カラー", "カラー"],
-        "トップ": ["ワンカラトップ", "ワンカラー トップ", "トップ"],
+    // Data is already in percentage format (0-100), use it directly from SK~SP (current) and SQ~SV (previous)
+    // Column order: SK=合計タイム, SL=オフ／フィル, SM=ケア, SN=ベース, SO=カラー, SP=トップ (current)
+    // Column order: SQ=合計タイム, SR=オフ／フィル, SS=ケア, ST=ベース, SU=カラー, SV=トップ (previous)
+    const clampPercentage = (value: number): number => {
+        return Math.max(0, Math.min(100, value));
     };
 
-    // First pass: collect all raw values
-    const rawValues: Record<AxisKeyTime, { nat: number; prev: number; cur: number }> = {
-        "合計タイム": { nat: 0, prev: 0, cur: 0 },
-        "オフ／フィル": { nat: 0, prev: 0, cur: 0 },
-        "ケア": { nat: 0, prev: 0, cur: 0 },
-        "ベース": { nat: 0, prev: 0, cur: 0 },
-        "カラー": { nat: 0, prev: 0, cur: 0 },
-        "トップ": { nat: 0, prev: 0, cur: 0 },
-    };
-
-    for (const axis of axes) {
-        if (axis === "合計タイム") {
-            // Use the total time passed as props (from assessment or blobs)
-            // These should be the actual total times, not calculated from sub-categories
-            const natTotal = findValueInData(averageDetailData, axisAliases["合計タイム"]) || nationalTotal;
-            const prevTotalFromData = findValueInData(previousDetailData, axisAliases["合計タイム"]) || prevTotal;
-            const curTotalFromData = findValueInData(currentDetailData, axisAliases["合計タイム"]) || curTotal;
-
-            rawValues[axis] = {
-                nat: natTotal,
-                prev: prevTotalFromData,
-                cur: curTotalFromData,
-            };
-        } else {
-            const aliases = axisAliases[axis] || [];
-            rawValues[axis] = {
-                nat: findValueInData(averageDetailData, aliases),
-                prev: findValueInData(previousDetailData, aliases),
-                cur: findValueInData(currentDetailData, aliases),
-            };
-        }
-    }
-
-    // Debug: Log raw values
-    console.log("TimeRadar - Raw Values:", rawValues);
-    console.log("TimeRadar - Props (nat/prev/cur):", { nationalTotal, prevTotal, curTotal });
-    console.log("TimeRadar - averageDetailData:", averageDetailData);
-    console.log("TimeRadar - previousDetailData:", previousDetailData);
-    console.log("TimeRadar - currentDetailData:", currentDetailData);
-
-    // Build rows with percentages using fixed max values
     const rows = axes.map((axis) => {
-        const { nat: natRaw, prev: prevRaw, cur: curRaw } = rawValues[axis];
-        const max = FIXED_MAX_BY_AXIS[axis];
+        const currentPercent = clampPercentage(getRadarPercentage(timeRadarChartCurrent, axis));
+        const previousPercent = clampPercentage(getRadarPercentage(timeRadarChartPrevious, axis));
+        // For national average, use averageDetailData or fallback to 0
+        const nationalPercent = clampPercentage(getRadarPercentage(averageDetailData, axis));
+
         return {
             axis,
-            national: normalize(natRaw, max),
-            previous: normalize(prevRaw, max),
-            current: normalize(curRaw, max),
-            nationalRaw: natRaw,
-            previousRaw: prevRaw,
-            currentRaw: curRaw,
-            max,
+            national: nationalPercent,
+            previous: previousPercent,
+            current: currentPercent,
+            nationalRaw: nationalPercent,
+            previousRaw: previousPercent,
+            currentRaw: currentPercent,
+            max: 100,
         };
     });
-
-    console.log("TimeRadar - Rows for chart:", rows);
 
     return (
         <div className="relative h-[700px] overflow-hidden rounded-2xl border border-[#e8e9f4] bg-white">
@@ -303,63 +326,98 @@ export default function TimeRadar({
             </div>
             <div className="relative h-[540px] px-6 pb-12 pt-6">
                 <ResponsiveContainer width="100%" height="100%">
-                    <RadarChart data={rows} startAngle={90} endAngle={-270} margin={{ top: 24, right: 24, bottom: 10, left: 24 }}>
-                        <PolarGrid gridType="polygon" radialLines polarRadius={[45, 90, 135, 180, 225]} stroke="#e6e9f5" />
+                    <RadarChart data={rows} startAngle={90} endAngle={-270} margin={{ top: 24, right: 24, bottom: 24, left: 24 }} outerRadius="85%">
+                        <PolarGrid gridType="polygon" radialLines stroke="#e6e9f5" />
                         <PolarAngleAxis dataKey="axis" tick={false} />
-                        <PolarRadiusAxis domain={[0, 100]} tickCount={5} axisLine={false} tick={false} />
-                        <Radar name="全国平均" dataKey="national" stroke="#64CBD3" strokeWidth={2} fill="#64CBD3" fillOpacity={0.18} dot={<NationalDot />} />
+                        <PolarRadiusAxis angle={90} domain={[0, 100]} tickCount={11} axisLine={false} tick={false} />
                         <Radar name="前回" dataKey="previous" stroke="#4075B5" strokeWidth={2} fill="#4075B5" fillOpacity={0.15} dot />
                         <Radar name="今回" dataKey="current" stroke="#F15C4B" strokeWidth={2} fill="#F15C4B" fillOpacity={0.18} dot />
                     </RadarChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0">
-                    {/* Axis labels with fixed max values */}
-                    <div className="absolute left-1/2 top-[2%] -translate-x-1/2 text-center">
+
+                    <div className="absolute left-1/2 top-[8%] -translate-x-1/2 text-center">
                         <div className="text-sm font-semibold text-[#2a8090]">合計タイム</div>
-                        <div className="mt-0.5 text-[10px] text-slate-500">{formatSecondsToTime(FIXED_MAX_BY_AXIS["合計タイム"])}</div>
                     </div>
-                    <div className="absolute left-[70%] top-[28%] -translate-y-1/2 text-left">
+                    <div className="absolute left-[67%] top-[30%] -translate-y-1/2 text-left">
                         <div className="text-sm font-semibold text-[#2a8090]">オフ／フィル</div>
-                        <div className="mt-0.5 text-[10px] text-slate-500">{formatSecondsToTime(FIXED_MAX_BY_AXIS["オフ／フィル"])}</div>
                     </div>
-                    <div className="absolute left-[70%] bottom-[26%] -translate-y-1/2 text-left">
+                    <div className="absolute left-[67%] bottom-[32%] -translate-y-1/2 text-left">
                         <div className="text-sm font-semibold text-[#2a8090]">ケア</div>
-                        <div className="mt-0.5 text-[10px] text-slate-500">{formatSecondsToTime(FIXED_MAX_BY_AXIS["ケア"])}</div>
                     </div>
-                    <div className="absolute bottom-[6%] left-1/2 -translate-x-1/2 text-center">
+                    <div className="absolute bottom-[12%] left-1/2 -translate-x-1/2 text-center">
                         <div className="text-sm font-semibold text-[#2a8090]">ワンカラー（ベース）</div>
-                        <div className="mt-0.5 text-[10px] text-slate-500">{formatSecondsToTime(FIXED_MAX_BY_AXIS["ベース"])}</div>
                     </div>
-                    <div className="absolute left-[18%] bottom-[28%] -translate-y-1/2 text-right">
+                    <div className="absolute left-[20%] bottom-[32%] -translate-y-1/2 text-right">
                         <div className="text-sm font-semibold text-[#2a8090]">ワンカラー（カラー）</div>
-                        <div className="mt-0.5 text-[10px] text-slate-500">{formatSecondsToTime(FIXED_MAX_BY_AXIS["カラー"])}</div>
                     </div>
-                    <div className="absolute left-[18%] top-[28%] -translate-y-1/2 text-right">
+                    <div className="absolute left-[20%] top-[31%] -translate-y-1/2 text-right">
                         <div className="text-sm font-semibold text-[#2a8090]">ワンカラー（トップ）</div>
-                        <div className="mt-0.5 text-[10px] text-slate-500">{formatSecondsToTime(FIXED_MAX_BY_AXIS["トップ"])}</div>
                     </div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[12%]">100</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[18.5%]">90</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[21.5%]">80</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[25%]">70</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[28%]">60</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[31%]">50</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[34%]">40</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[37%]">30</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[40%]">20</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[44.5%]">10</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[47%]">0</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[50.5%]">10</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[53.5%]">20</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[56.5%]">30</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[59.5%]">40</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[62.5%]">50</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[65.5%]">60</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[69%]">70</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[72%]">80</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[75.5%]">90</div>
+                    <div className="absolute left-1/2 -translate-x-1/2 text-[7px] text-gray-500 top-[82%]">100</div>
+                    <div className="absolute left-[34%] -translate-x-1/2 text-[7px] text-gray-500 top-[30%]">100</div>
+                    <div className="absolute left-[36.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[32%]">90</div>
+                    <div className="absolute left-[38%] -translate-x-1/2 text-[7px] text-gray-500 top-[34%]">80</div>
+                    <div className="absolute left-[39.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[36%]">70</div>
+                    <div className="absolute left-[41%] -translate-x-1/2 text-[7px] text-gray-500 top-[37.5%]">60</div>
+                    <div className="absolute left-[42.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[39%]">50</div>
+                    <div className="absolute left-[44%] -translate-x-1/2 text-[7px] text-gray-500 top-[40.5%]">40</div>
+                    <div className="absolute left-[45.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[42.5%]">30</div>
+                    <div className="absolute left-[47%] -translate-x-1/2 text-[7px] text-gray-500 top-[44%]">20</div>
+                    <div className="absolute left-[48.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[45.5%]">10</div>
+                    <div className="absolute left-[51%] -translate-x-1/2 text-[7px] text-gray-500 top-[48.5%]">10</div>
+                    <div className="absolute left-[52.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[50.5%]">20</div>
+                    <div className="absolute left-[54%] -translate-x-1/2 text-[7px] text-gray-500 top-[52%]">30</div>
+                    <div className="absolute left-[55.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[53.5%]">40</div>
+                    <div className="absolute left-[57%] -translate-x-1/2 text-[7px] text-gray-500 top-[55.5%]">50</div>
+                    <div className="absolute left-[58.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[57%]">60</div>
+                    <div className="absolute left-[60%] -translate-x-1/2 text-[7px] text-gray-500 top-[58.5%]">70</div>
+                    <div className="absolute left-[61.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[60%]">80</div>
+                    <div className="absolute left-[63%] -translate-x-1/2 text-[7px] text-gray-500 top-[61.5%]">90</div>
+                    <div className="absolute left-[65.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[64%]">100</div>
+                    <div className="absolute left-[34%] -translate-x-1/2 text-[7px] text-gray-500 top-[64%]">100</div>
+                    <div className="absolute left-[37%] -translate-x-1/2 text-[7px] text-gray-500 top-[62%]">90</div>
+                    <div className="absolute left-[38.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[60.5%]">80</div>
+                    <div className="absolute left-[40%] -translate-x-1/2 text-[7px] text-gray-500 top-[59%]">70</div>
+                    <div className="absolute left-[41.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[57%]">60</div>
+                    <div className="absolute left-[43%] -translate-x-1/2 text-[7px] text-gray-500 top-[55%]">50</div>
+                    <div className="absolute left-[44.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[53.5%]">40</div>
+                    <div className="absolute left-[46%] -translate-x-1/2 text-[7px] text-gray-500 top-[52%]">30</div>
+                    <div className="absolute left-[47.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[50.5%]">20</div>
+                    <div className="absolute left-[49%] -translate-x-1/2 text-[7px] text-gray-500 top-[49%]">10</div>
+                    <div className="absolute left-[51.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[46%]">10</div>
+                    <div className="absolute left-[53%] -translate-x-1/2 text-[7px] text-gray-500 top-[44%]">20</div>
+                    <div className="absolute left-[54.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[42%]">30</div>
+                    <div className="absolute left-[56%] -translate-x-1/2 text-[7px] text-gray-500 top-[40.5%]">40</div>
+                    <div className="absolute left-[57.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[39%]">50</div>
+                    <div className="absolute left-[59%] -translate-x-1/2 text-[7px] text-gray-500 top-[37.5%]">60</div>
+                    <div className="absolute left-[60.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[35.5%]">70</div>
+                    <div className="absolute left-[62%] -translate-x-1/2 text-[7px] text-gray-500 top-[34%]">80</div>
+                    <div className="absolute left-[63.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[32%]">90</div>
+                    <div className="absolute left-[65.5%] -translate-x-1/2 text-[7px] text-gray-500 top-[29%]">100</div>
+
                 </div>
             </div>
-            <div className="pointer-events-none absolute inset-x-6 bottom-2">
-                <div className="rounded-lg border border-slate-200 bg-white/85 px-3 py-2 text-[11px] text-slate-600 backdrop-blur">
-                    {rows.map((row) => (
-                        <div key={row.axis} className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="text-xs font-semibold text-slate-700">{row.axis}</span>
-                            <div className="flex flex-wrap items-center gap-3">
-                                <span className="text-[#64CBD3] font-medium">
-                                    全国平均: {formatScore(row.nationalRaw)} / {formatScore(row.max)}
-                                </span>
-                                <span className="text-[#4075B5] font-medium">
-                                    前回: {formatScore(row.previousRaw)} / {formatScore(row.max)}
-                                </span>
-                                <span className="text-[#F15C4B] font-medium">
-                                    今回: {formatScore(row.currentRaw)} / {formatScore(row.max)}
-                                </span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        </div>
+        </div >
     );
 }

@@ -22,6 +22,8 @@ import AssessmentTabs from "@/components/customer/AssessmentTabs";
 import { LiteNoticeBanner } from "@/components/customer/LiteNoticeBanner";
 import OverviewRadar from "../components/customer/OverviewRadar";
 import TimeRadar from "../components/customer/TimeRadar";
+import CareRadar from "../components/customer/CareRadar";
+import OneColorRadar from "../components/customer/OneColorRadar";
 import { downloadPDF } from "@/utils/pdfGenerator";
 import { elementToImage } from "@/utils/chartToImage";
 import { capturePageAsPDF, captureMultipleSectionsAsPDF } from "@/utils/screenCapturePDF";
@@ -745,6 +747,7 @@ export default function CustomerDetail() {
 
     const [radarCurrent, setRadarCurrent] = useState<JsonMap | undefined>();
     const [radarAverage, setRadarAverage] = useState<JsonMap | undefined>();
+    const [radarPrevious, setRadarPrevious] = useState<JsonMap | undefined>();
 
     const [careScores, setCareScores] = useState<JsonMap | undefined>();
     const [oneColorScores, setOneColorScores] = useState<JsonMap | undefined>();
@@ -773,10 +776,16 @@ export default function CustomerDetail() {
     const [oneColorComparisonAverageData, setOneColorComparisonAverageData] = useState<JsonMap | undefined>();
     const [oneColorComparisonPreviousData, setOneColorComparisonPreviousData] = useState<JsonMap | undefined>();
     const [oneColorRadarChart, setOneColorRadarChart] = useState<JsonMap | undefined>();
+    // one_color_radar_chart blobs (current/previous)
+    const [oneColorRadarCurrentData, setOneColorRadarCurrentData] = useState<JsonMap | undefined>();
+    const [oneColorRadarPreviousData, setOneColorRadarPreviousData] = useState<JsonMap | undefined>();
     const [timeEvaluationGraph, setTimeEvaluationGraph] = useState<JsonMap | undefined>();
     const [timeComparison, setTimeComparison] = useState<JsonMap | undefined>();
     const [timeComparisonAverage, setTimeComparisonAverage] = useState<JsonMap | undefined>();
     const [timeRadarChart, setTimeRadarChart] = useState<JsonMap | undefined>();
+    // time_radar_chart blobs (current/previous)
+    const [timeRadarCurrentData, setTimeRadarCurrentData] = useState<JsonMap | undefined>();
+    const [timeRadarPreviousData, setTimeRadarPreviousData] = useState<JsonMap | undefined>();
     const [timeBothHandCurrentData, setTimeBothHandCurrentData] = useState<JsonMap | undefined>();
     const [timeBothHandPreviousData, setTimeBothHandPreviousData] = useState<JsonMap | undefined>();
     const [timeEvaluationGraphPreviousData, setTimeEvaluationGraphPreviousData] = useState<JsonMap | undefined>();
@@ -1011,7 +1020,11 @@ export default function CustomerDetail() {
                 const onePrevBlob = blobRows?.find((b: any) => b.section === "one_color_score" && (b.subtype === "previous" || b.subtype === "final"));
                 const oneEvalCurBlob = blobRows?.find((b: any) => b.section === "one_color_evaluation_graph" && (!b.subtype || b.subtype === "current"));
                 const oneEvalPrevBlob = blobRows?.find((b: any) => b.section === "one_color_evaluation_graph" && (b.subtype === "previous" || b.subtype === "final"));
-                const onePrevRadarBlob = blobRows?.find((b: any) => b.section === "one_color_radar_chart" && b.subtype === "previous");
+                let oneColorRadarCurBlob = blobRows?.find((b: any) => b.section === "one_color_radar_chart" && b.subtype === "current");
+                let oneColorRadarPrevBlob = blobRows?.find((b: any) => b.section === "one_color_radar_chart" && (b.subtype === "previous" || b.subtype === "final"));
+                const onePrevRadarBlob = oneColorRadarPrevBlob;
+                let timeRadarCurBlob = blobRows?.find((b: any) => b.section === "time_radar_chart" && b.subtype === "current");
+                let timeRadarPrevBlob = blobRows?.find((b: any) => b.section === "time_radar_chart" && (b.subtype === "previous" || b.subtype === "final"));
                 const timePrevBlob = blobRows?.find((b: any) => (b.section === "time_score" || b.section === "time_both_hand") && (b.subtype === "previous" || b.subtype === "final"));
                 const timePrevEvalBlob = blobRows?.find((b: any) => b.section === "time_evaluation_graph" && (b.subtype === "previous" || b.subtype === "final"));
                 const timePrevLapseBlob = blobRows?.find((b: any) => b.section === "time_lapse_comparison" && b.subtype === "previous");
@@ -1353,6 +1366,7 @@ export default function CustomerDetail() {
 
                 const rCur = radarRows?.find((r) => r.section === "radar_chart" && r.subtype === "current") as JsonbRow | undefined;
                 const rAvg = radarRows?.find((r) => r.section === "radar_chart" && r.subtype === "average") as JsonbRow | undefined || avg; // fallback to comparison average
+                const rPrev = radarRows?.find((r) => r.section === "radar_chart" && r.subtype === "previous") as JsonbRow | undefined;
 
                 if (!alive) return;
                 // Create a flat structure for scoreCurrent
@@ -1383,6 +1397,8 @@ export default function CustomerDetail() {
                 setAvgData(safeAvgData);
                 setRadarCurrent(safeRadarCurrent);
                 setRadarAverage(safeRadarAverage);
+                const safeRadarPrevious = (rPrev?.data && typeof rPrev.data === "object" ? (rPrev.data as JsonMap) : {}) as JsonMap;
+                setRadarPrevious(safeRadarPrevious);
 
                 // Set structured scores for display
                 setCareScores(scoresByCategory?.care || {});
@@ -1557,6 +1573,31 @@ export default function CustomerDetail() {
                 setOneColorComparisonAverageData(((ocAvg?.data as JsonMap) || (avg?.data as JsonMap) || {}));
                 setOneColorComparisonPreviousData((ocPrev?.data as JsonMap) || {});
                 setOneColorRadarChart(sectionData?.one_color_radar_chart || {});
+                // Set one_color_radar_chart data from blobs (similar to care_radar_chart)
+                const isEmptyOneColorRadarBlob = (row: any) =>
+                    !row || !row.data || (typeof row.data === "object" && Object.keys(row.data || {}).length === 0);
+                if (isEmptyOneColorRadarBlob(oneColorRadarCurBlob) || isEmptyOneColorRadarBlob(oneColorRadarPrevBlob)) {
+                    const { data: oneColorRadarByCustomer } = await supabase
+                        .from("section_blobs")
+                        .select("*")
+                        .eq("customer_id", id)
+                        .eq("assessment_id", assessment.id)
+                        .eq("section", "one_color_radar_chart")
+                        .order("created_at", { ascending: false })
+                        .limit(10);
+                    if (oneColorRadarByCustomer && oneColorRadarByCustomer.length) {
+                        oneColorRadarPrevBlob =
+                            isEmptyOneColorRadarBlob(oneColorRadarPrevBlob)
+                                ? oneColorRadarByCustomer.find((r: any) => r.section === "one_color_radar_chart" && (r.subtype === "previous" || r.subtype === "final"))
+                                : oneColorRadarPrevBlob;
+                        oneColorRadarCurBlob =
+                            isEmptyOneColorRadarBlob(oneColorRadarCurBlob)
+                                ? oneColorRadarByCustomer.find((r: any) => r.section === "one_color_radar_chart" && r.subtype === "current")
+                                : oneColorRadarCurBlob;
+                    }
+                }
+                if (oneColorRadarCurBlob && oneColorRadarCurBlob.data) setOneColorRadarCurrentData(oneColorRadarCurBlob.data as JsonMap);
+                if (oneColorRadarPrevBlob && oneColorRadarPrevBlob.data) setOneColorRadarPreviousData(oneColorRadarPrevBlob.data as JsonMap);
                 setTimeBothHandCurrentData((timeBothHandCur?.data as JsonMap) || {});
                 setTimeBothHandPreviousData((timeBothHandPrev?.data as JsonMap) || (timePrevBlob?.data as JsonMap) || {});
                 setTimeEvaluationGraph((timeEvalCur?.data as JsonMap) || (sectionData?.time_evaluation_graph as JsonMap) || {});
@@ -1564,6 +1605,31 @@ export default function CustomerDetail() {
                 setTimeComparisonAverage((timeAvgLapseBlob?.data as JsonMap) || {});
                 setTimeComparison((timePrevLapseBlob?.data as JsonMap) || {});
                 setTimeRadarChart(sectionData?.time_radar_chart || {});
+                // Set time_radar_chart data from blobs (similar to care_radar_chart)
+                const isEmptyTimeRadarBlob = (row: any) =>
+                    !row || !row.data || (typeof row.data === "object" && Object.keys(row.data || {}).length === 0);
+                if (isEmptyTimeRadarBlob(timeRadarCurBlob) || isEmptyTimeRadarBlob(timeRadarPrevBlob)) {
+                    const { data: timeRadarByCustomer } = await supabase
+                        .from("section_blobs")
+                        .select("*")
+                        .eq("customer_id", id)
+                        .eq("assessment_id", assessment.id)
+                        .eq("section", "time_radar_chart")
+                        .order("created_at", { ascending: false })
+                        .limit(10);
+                    if (timeRadarByCustomer && timeRadarByCustomer.length) {
+                        timeRadarPrevBlob =
+                            isEmptyTimeRadarBlob(timeRadarPrevBlob)
+                                ? timeRadarByCustomer.find((r: any) => r.section === "time_radar_chart" && (r.subtype === "previous" || r.subtype === "final"))
+                                : timeRadarPrevBlob;
+                        timeRadarCurBlob =
+                            isEmptyTimeRadarBlob(timeRadarCurBlob)
+                                ? timeRadarByCustomer.find((r: any) => r.section === "time_radar_chart" && r.subtype === "current")
+                                : timeRadarCurBlob;
+                    }
+                }
+                if (timeRadarCurBlob && timeRadarCurBlob.data) setTimeRadarCurrentData(timeRadarCurBlob.data as JsonMap);
+                if (timeRadarPrevBlob && timeRadarPrevBlob.data) setTimeRadarPreviousData(timeRadarPrevBlob.data as JsonMap);
 
             } catch (e: any) {
                 toast({
@@ -1910,39 +1976,74 @@ export default function CustomerDetail() {
 
 
     const radarRows = useMemo(() => {
+        // Extract percentage values directly from radar chart data (Y~AB for current, AC~AF for previous)
+        // Column order: Y=総合, Z=ケア, AA=ワンカラー, AB=タイム (current)
+        // Column order: AC=総合, AD=ケア, AE=ワンカラー, AF=タイム (previous)
+        // These are already percentages, so use them directly
+        const getRadarValue = (map: JsonMap | undefined, categoryName: string): number => {
+            if (!map) return 0;
 
-        const totalMax = 1320;
-        const careMax = 410;
-        const oneColorMax = 610;
-        const timeMax = 300;
+            // Try category name first (most common case)
+            if (map[categoryName] !== undefined && map[categoryName] !== null) {
+                const val = num(map[categoryName]);
+                if (val !== null && val !== undefined && !isNaN(val)) {
+                    // Ensure value is within 0-100 range and return as-is (already percentage)
+                    return Math.max(0, Math.min(100, val));
+                }
+            }
 
-        return [
+            // Try normalized category name variations
+            const normalizedName = categoryName.replace(/[０-９Ａ-Ｚａ-ｚ]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0));
+            if (map[normalizedName] !== undefined && map[normalizedName] !== null) {
+                const val = num(map[normalizedName]);
+                if (val !== null && val !== undefined && !isNaN(val)) {
+                    return Math.max(0, Math.min(100, val));
+                }
+            }
+
+            // Try finding by key includes (for cases where key might have prefix/suffix)
+            for (const [key, value] of Object.entries(map)) {
+                if (key.includes(categoryName) || categoryName.includes(key)) {
+                    const val = num(value);
+                    if (val !== null && val !== undefined && !isNaN(val)) {
+                        return Math.max(0, Math.min(100, val));
+                    }
+                }
+            }
+
+            return 0;
+        };
+
+        const result = [
             {
                 name: "総合",
-                "National Average": (totalAvg / totalMax) * 100,
-                Previous: (totalPrev / totalMax) * 100,
-                Current: (totalCur / totalMax) * 100
+                "National Average": getRadarValue(radarAverage, "総合"),
+                Previous: getRadarValue(radarPrevious, "総合"),
+                Current: getRadarValue(radarCurrent, "総合")
             },
             {
                 name: "ケア",
-                "National Average": ((prevAggData.ケア || 0) / careMax) * 100,
-                Previous: ((prevAggData.ケア || 0) / careMax) * 100,
-                Current: (((num(assessment?.care_score) ?? 0)) / careMax) * 100
+                "National Average": getRadarValue(radarAverage, "ケア"),
+                Previous: getRadarValue(radarPrevious, "ケア"),
+                Current: getRadarValue(radarCurrent, "ケア")
             },
             {
                 name: "ワンカラー",
-                "National Average": ((prevAggData.ワンカラー || 0) / oneColorMax) * 100,
-                Previous: ((prevAggData.ワンカラー || 0) / oneColorMax) * 100,
-                Current: (((num(assessment?.one_color_score) ?? 0)) / oneColorMax) * 100
+                "National Average": getRadarValue(radarAverage, "ワンカラー"),
+                Previous: getRadarValue(radarPrevious, "ワンカラー"),
+                Current: getRadarValue(radarCurrent, "ワンカラー")
             },
             {
                 name: "タイム",
-                "National Average": ((prevAggData.タイム || 0) / timeMax) * 100,
-                Previous: ((prevAggData.タイム || 0) / timeMax) * 100,
-                Current: (((num(assessment?.time_score) ?? 0)) / timeMax) * 100
+                "National Average": getRadarValue(radarAverage, "タイム"),
+                Previous: getRadarValue(radarPrevious, "タイム"),
+                Current: getRadarValue(radarCurrent, "タイム")
             },
         ];
-    }, [totalAvg, totalPrev, totalCur, prevAggData, scoreCurrent, assessment]);
+
+        console.log('[CustomerDetail] radarRows result:', result);
+        return result;
+    }, [radarCurrent, radarAverage, radarPrevious]);
 
     const careRadarData = useMemo(() => {
         return radarDataForCategory("care", careScores, prevAggData);
@@ -1997,11 +2098,6 @@ export default function CustomerDetail() {
                                 <span>採点日：{customer?.application_date ?? "—"}</span>
                             </div>
                             <div className="flex gap-2 mt-3">
-                                {/* <Button
-                                    size="sm"
-                                    onClick={handleSavePdf}>
-                                    
-                                </Button> */}
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -2661,384 +2757,15 @@ export default function CustomerDetail() {
                                     })()}
                                 </Card>
                                 <Card id="pdf-onecolor-detail" className="mt-4">
-                                    {(() => {
-                                        const hasKeys = (map?: JsonMap): map is JsonMap =>
-                                            !!map && typeof map === "object" && Object.keys(map).length > 0;
-
-                                        const fallbackMap = (primary?: JsonMap, fallback?: JsonMap) =>
-                                            hasKeys(primary) ? primary : hasKeys(fallback) ? (fallback as JsonMap) : undefined;
-
-                                        const parseNumber = (value: any): number => {
-                                            const direct = num(value);
-                                            if (direct !== null) return direct;
-                                            if (typeof value === "string") {
-                                                const match = value.replace(/[,A-Za-z]+/g, "").match(/-?\d+(\.\d+)?/);
-                                                if (match) return Number(match[0]);
-                                            }
-                                            return 0;
-                                        };
-                                        const pickValue = (map: JsonMap | undefined, keys: string[]): number => {
-                                            if (!map) return 0;
-                                            for (const [key, value] of Object.entries(map)) {
-                                                if (keys.some((needle) => key.includes(needle))) {
-                                                    const parsed = parseNumber(value);
-                                                    if (!Number.isNaN(parsed)) return parsed;
-                                                }
-                                            }
-                                            return 0;
-                                        };
-
-                                        const ensureCareMap = (m: any): Record<string, any> => {
-                                            if (!m) return {};
-
-                                            if (typeof m === "string") {
-                                                try {
-                                                    const p = JSON.parse(m);
-                                                    return p && typeof p === "object" ? p : {};
-                                                } catch {
-                                                    return {};
-                                                }
-                                            }
-                                            return typeof m === "object" ? m as Record<string, any> : {};
-                                        };
-                                        const isEmptyObj = (m: Record<string, any>) => !m || Object.keys(m).length === 0;
-                                        let curBlob = ensureCareMap(careScoreCurrentData);
-                                        let prevBlob = ensureCareMap(careScorePreviousData);
-                                        const evalCur = ensureCareMap(careEvaluationGraph);
-                                        const evalPrev = ensureCareMap(careEvaluationGraphPrevious);
-
-                                        // if (isEmptyObj(curBlob) && !isEmptyObj(evalCur)) curBlob = evalCur;
-                                        // if (isEmptyObj(prevBlob) && !isEmptyObj(evalPrev)) prevBlob = evalPrev;
-
-                                        const normalizeKey = (s: string) =>
-                                            (typeof s === "string" ? s : String(s))
-                                                .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0))
-                                                .replace(/[‐‑–—−ーｰ－]/g, "-")
-                                                .replace(/[［］【】\\[\\]\\(\\)\\s\u3000]/g, "");
-
-                                        const scoreFrom = (map: Record<string, any>, code: string, label: string) => {
-                                            if (!map) return 0;
-                                            const nCode = normalizeKey(code || "");
-                                            const nCodeA = normalizeKey(`[ケア] ${code}`);
-                                            const nCodeB = normalizeKey(`ケア${code}`);
-                                            const nLabel = normalizeKey(label || "");
-                                            for (const [k, v] of Object.entries(map)) {
-                                                const nk = normalizeKey(k);
-                                                if (nk.includes(nCode) || nk.includes(nCodeA) || nk.includes(nCodeB) || nk.includes(nLabel)) {
-                                                    const n = Number(String(v ?? "").replace(/[^\d.-]/g, ""));
-                                                    return Number.isFinite(n) ? n : 0;
-                                                }
-                                            }
-                                            return 0;
-                                        };
-                                        type BucketKey = "オフ／フィル" | "ファイル" | "プレパレーション";
-                                        const bucketForCode = (code: string, fallbackCategory?: string): BucketKey | undefined => {
-                                            const m = String(code || "").match(/^(\d{1,2})-/);
-                                            if (m) {
-                                                const major = parseInt(m[1], 10);
-                                                if (major >= 1 && major <= 2) return "オフ／フィル";
-                                                if (major >= 3 && major <= 6) return "ファイル";
-                                                if (major >= 7 && major <= 13) return "プレパレーション";
-                                            }
-                                            // Fallback by category name if code not parseable
-                                            if (fallbackCategory?.includes("オフ")) return "オフ／フィル";
-                                            if (fallbackCategory?.includes("ファイル")) return "ファイル";
-                                            if (fallbackCategory?.includes("プレパレーション")) return "プレパレーション";
-                                            return undefined;
-                                        };
-                                        const bucketTotals: Record<BucketKey, { max: number; prev: number; cur: number }> = {
-                                            "オフ／フィル": { max: 0, prev: 0, cur: 0 },
-                                            "ファイル": { max: 0, prev: 0, cur: 0 },
-                                            "プレパレーション": { max: 0, prev: 0, cur: 0 },
-                                        };
-                                        CARE_EVALUATION_MASTER.forEach((cat) => {
-                                            cat.items.forEach((it) => {
-                                                it.checkpoints.forEach((cp) => {
-                                                    const pts = cp.points ?? 0;
-                                                    const bucket = bucketForCode(cp.code, cat.name);
-                                                    if (!bucket) return;
-                                                    // Denominators: always sum 配点
-                                                    bucketTotals[bucket].max += pts;
-                                                    const prevScore = scoreFrom(prevBlob, cp.code, cp.label);
-                                                    const curScore = scoreFrom(curBlob, cp.code, cp.label);
-                                                    const prevClamped = Math.max(0, Math.min(pts, prevScore));
-                                                    const curClamped = Math.max(0, Math.min(pts, curScore));
-                                                    bucketTotals[bucket].prev += prevClamped;
-                                                    bucketTotals[bucket].cur += curClamped;
-                                                });
-                                            });
-
-                                        });
-                                        const overall = {
-                                            max: bucketTotals["オフ／フィル"].max + bucketTotals["ファイル"].max + bucketTotals["プレパレーション"].max,
-                                            prev: bucketTotals["オフ／フィル"].prev + bucketTotals["ファイル"].prev + bucketTotals["プレパレーション"].prev,
-                                            cur: bucketTotals["オフ／フィル"].cur + bucketTotals["ファイル"].cur + bucketTotals["プレパレーション"].cur,
-                                        };
-                                        const maxOverall = overall.max;
-                                        const maxOffFill = bucketTotals["オフ／フィル"].max;
-                                        const maxFile = bucketTotals["ファイル"].max;
-                                        const maxPrep = bucketTotals["プレパレーション"].max;
-
-                                        const averageMap = fallbackMap(careRadarAverageData, avgData as JsonMap | undefined) || {};
-                                        const previousMap = fallbackMap(careRadarPreviousData, undefined) || {};
-                                        const currentMap = fallbackMap(careRadarCurrentData, undefined) || {};
-
-                                        const nationalBuckets: Record<BucketKey, number> = {
-                                            "オフ／フィル": pickValue(averageMap, ["オフ／フィル", "オフ", "フィル"]) || bucketTotals["オフ／フィル"].prev,
-                                            "ファイル": pickValue(averageMap, ["ファイル"]) || bucketTotals["ファイル"].prev,
-                                            "プレパレーション": pickValue(averageMap, ["プレパレーション"]) || bucketTotals["プレパレーション"].prev,
-                                        };
-
-                                        const previousBuckets: Record<BucketKey, number> = {
-                                            "オフ／フィル": bucketTotals["オフ／フィル"].prev || pickValue(previousMap, ["オフ／フィル", "オフ", "フィル"]),
-                                            "ファイル": bucketTotals["ファイル"].prev || pickValue(previousMap, ["ファイル"]),
-                                            "プレパレーション": bucketTotals["プレパレーション"].prev || pickValue(previousMap, ["プレパレーション"]),
-                                        };
-                                        const currentBuckets: Record<BucketKey, number> = {
-                                            "オフ／フィル": bucketTotals["オフ／フィル"].cur || pickValue(currentMap, ["オフ／フィル", "オフ", "フィル"]),
-                                            "ファイル": bucketTotals["ファイル"].cur || pickValue(currentMap, ["ファイル"]),
-                                            "プレパレーション": bucketTotals["プレパレーション"].cur || pickValue(currentMap, ["プレパレーション"]),
-                                        };
-                                        // ケア総合は常に3軸の合計で算出する（総合キーには依存しない）
-                                        const nationalOverall =
-                                            (nationalBuckets["オフ／フィル"] ?? 0) +
-                                            (nationalBuckets["ファイル"] ?? 0) +
-                                            (nationalBuckets["プレパレーション"] ?? 0);
-                                        const previousOverall =
-                                            (previousBuckets["オフ／フィル"] ?? 0) +
-                                            (previousBuckets["ファイル"] ?? 0) +
-                                            (previousBuckets["プレパレーション"] ?? 0);
-                                        const currentOverall =
-                                            (currentBuckets["オフ／フィル"] ?? 0) +
-                                            (currentBuckets["ファイル"] ?? 0) +
-                                            (currentBuckets["プレパレーション"] ?? 0);
-
-                                        const normalize = (value: number, max: number) => {
-                                            if (!max) return 0;
-                                            const ratio = (value / max) * 100;
-                                            return Math.max(0, Math.min(100, ratio));
-                                        };
-                                        const radarRows = [
-                                            {
-                                                axis: "ケア総合",
-                                                national: normalize(nationalOverall, maxOverall),
-                                                previous: normalize(previousOverall, maxOverall),
-                                                current: normalize(currentOverall, maxOverall),
-                                                nationalRaw: nationalOverall,
-                                                previousRaw: previousOverall,
-                                                currentRaw: currentOverall,
-                                                max: maxOverall,
-                                            },
-                                            {
-                                                axis: "オフ／フィル",
-                                                national: normalize(nationalBuckets["オフ／フィル"], maxOffFill),
-                                                previous: normalize(previousBuckets["オフ／フィル"], maxOffFill),
-                                                current: normalize(currentBuckets["オフ／フィル"], maxOffFill),
-                                                nationalRaw: nationalBuckets["オフ／フィル"],
-                                                previousRaw: previousBuckets["オフ／フィル"],
-                                                currentRaw: currentBuckets["オフ／フィル"],
-                                                max: maxOffFill,
-                                            },
-                                            {
-                                                axis: "ファイル",
-                                                national: normalize(nationalBuckets["ファイル"], maxFile),
-                                                previous: normalize(previousBuckets["ファイル"], maxFile),
-                                                current: normalize(currentBuckets["ファイル"], maxFile),
-                                                nationalRaw: nationalBuckets["ファイル"],
-                                                previousRaw: previousBuckets["ファイル"],
-                                                currentRaw: currentBuckets["ファイル"],
-                                                max: maxFile,
-                                            },
-                                            {
-                                                axis: "プレパレーション",
-                                                national: normalize(nationalBuckets["プレパレーション"], maxPrep),
-                                                previous: normalize(previousBuckets["プレパレーション"], maxPrep),
-                                                current: normalize(currentBuckets["プレパレーション"], maxPrep),
-                                                nationalRaw: nationalBuckets["プレパレーション"],
-                                                previousRaw: previousBuckets["プレパレーション"],
-                                                currentRaw: currentBuckets["プレパレーション"],
-                                                max: maxPrep,
-                                            },
-                                        ];
-
-                                        const legendItems = [
-                                            { label: "全国平均", color: "#64CBD3" },
-                                            { label: "前回", color: "#4075B5" },
-                                            { label: "今回", color: "#F15C4B" },
-                                        ];
-                                        const fmt1 = (n: number | undefined | null) =>
-                                            typeof n === "number" ? n.toLocaleString(undefined, { maximumFractionDigits: 1 }) : "";
-                                        const labelPositionForAxis = (axis: string, cx: number, cy: number) => {
-                                            if (axis === "ケア総合") return { x: cx, y: cy - 12, anchor: "middle" as const };
-                                            if (axis === "オフ／フィル") return { x: cx + 10, y: cy + 4, anchor: "start" as const };
-                                            if (axis === "ファイル") return { x: cx, y: cy + 14, anchor: "middle" as const };
-                                            if (axis === "プレパレーション") return { x: cx - 10, y: cy + 4, anchor: "end" as const };
-                                            return { x: cx, y: cy - 10, anchor: "middle" as const };
-                                        };
-                                        const renderCurrentDot = (props: any) => {
-                                            const { cx, cy, payload } = props;
-                                            if (typeof cx !== "number" || typeof cy !== "number") return null;
-                                            const raw = payload?.currentRaw;
-                                            if (raw === undefined || raw === null) return (
-                                                <circle cx={cx} cy={cy} r={4} fill="#F15C4B" stroke="#ffffff" strokeWidth={1.5} />
-                                            );
-                                            const { x, y, anchor } = labelPositionForAxis(payload?.axis, cx, cy);
-                                            return (
-                                                <g>
-                                                    <circle cx={cx} cy={cy} r={4.5} fill="#F15C4B" stroke="#ffffff" strokeWidth={1.8} />
-                                                    <text x={x} y={y} textAnchor={anchor} fontSize={12} fontWeight={600} fill="#F15C4B">
-                                                        {fmt1(raw)}
-                                                    </text>
-                                                </g>
-                                            );
-                                        };
-                                        const renderPreviousDot = (props: any) => {
-                                            const { cx, cy, payload } = props;
-                                            if (typeof cx !== "number" || typeof cy !== "number") return null;
-                                            const raw = payload?.previousRaw;
-                                            if (raw === undefined || raw === null) return (
-                                                <circle cx={cx} cy={cy} r={4} fill="#4075B5" stroke="#ffffff" strokeWidth={1.5} />
-                                            );
-                                            const { x, y, anchor } = labelPositionForAxis(payload?.axis, cx, cy);
-                                            return (
-                                                <g>
-                                                    <circle cx={cx} cy={cy} r={4.5} fill="#4075B5" stroke="#ffffff" strokeWidth={1.8} />
-                                                    <text x={x} y={y} textAnchor={anchor} fontSize={12} fontWeight={600} fill="#4075B5">
-                                                        {fmt1(raw)}
-                                                    </text>
-                                                </g>
-                                            );
-                                        };
-                                        const renderNationalDot = (props: any) => {
-                                            const { cx, cy, payload } = props;
-                                            if (typeof cx !== "number" || typeof cy !== "number") return null;
-                                            const raw = payload?.nationalRaw;
-                                            if (raw === undefined || raw === null) return (
-                                                <circle cx={cx} cy={cy} r={4} fill="#64CBD3" stroke="#ffffff" strokeWidth={1.5} />
-                                            );
-                                            const { x, y, anchor } = labelPositionForAxis(payload?.axis, cx, cy);
-                                            return (
-                                                <g>
-                                                    <circle cx={cx} cy={cy} r={4.5} fill="#64CBD3" stroke="#ffffff" strokeWidth={1.8} />
-                                                    <text x={x} y={y} textAnchor={anchor} fontSize={12} fontWeight={600} fill="#2a8090">
-                                                        {fmt1(raw)}
-                                                    </text>
-                                                </g>
-                                            );
-                                        };
-
-                                        return (
-                                            <>
-                                                <div id="pdf-care-radar" className="relative h-[550px] overflow-hidden rounded-2xl border border-[#e8e9f4] bg-white">
-                                                    <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#e87674] via-white to-[#54b4bd]" />
-                                                    <div className="flex flex-col gap-2 px-6 pt-6 sm:flex-row sm:items-center sm:justify-between">
-                                                        <div>
-                                                            <div className="text-sm font-semibold text-slate-700">グラフの名前</div>
-                                                        </div>
-                                                        <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-600">
-                                                            {legendItems.map((item) => (
-                                                                <div key={item.label} className="flex items-center gap-2">
-                                                                    <span
-                                                                        className="inline-flex h-2.5 w-8 rounded-full"
-                                                                        style={{ backgroundColor: item.color }}
-                                                                    />
-                                                                    <span>{item.label}</span>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                    <div className="relative h-[500px] px-6 pb-12 pt-6">
-                                                        <ResponsiveContainer width="100%" height="100%">
-                                                            <RadarChart
-                                                                data={radarRows}
-                                                                startAngle={90}
-                                                                endAngle={-270}
-                                                                margin={{ top: 24, right: 24, bottom: 24, left: 24 }}
-                                                            >
-                                                                <PolarGrid
-                                                                    gridType="polygon"
-                                                                    radialLines={true}
-                                                                    polarRadius={[45, 90, 135, 180, 225]}
-                                                                    stroke="#e6e9f5"
-                                                                />
-                                                                <PolarAngleAxis dataKey="axis" tick={false} />
-                                                                <PolarRadiusAxis domain={[0, 100]} tickCount={5} axisLine={false} tick={false} />
-                                                                <Radar
-                                                                    name="全国平均"
-                                                                    dataKey="national"
-                                                                    stroke="#64CBD3"
-                                                                    strokeWidth={2}
-                                                                    fill="#64CBD3"
-                                                                    fillOpacity={0.18}
-                                                                    dot={renderNationalDot}
-                                                                />
-                                                                <Radar
-                                                                    name="前回"
-                                                                    dataKey="previous"
-                                                                    stroke="#4075B5"
-                                                                    strokeWidth={2}
-                                                                    fill="#4075B5"
-                                                                    fillOpacity={0.15}
-                                                                    dot={renderPreviousDot}
-                                                                />
-                                                                <Radar
-                                                                    name="今回"
-                                                                    dataKey="current"
-                                                                    stroke="#F15C4B"
-                                                                    strokeWidth={2}
-                                                                    fill="#F15C4B"
-                                                                    fillOpacity={0.18}
-                                                                    dot={renderCurrentDot}
-                                                                />
-                                                            </RadarChart>
-                                                        </ResponsiveContainer>
-                                                        <div className="pointer-events-none absolute inset-0">
-                                                            <div className="absolute left-1/2 -translate-x-1/2 text-center">
-                                                                <div className="text-sm font-semibold text-[#2a8090]">ケア総合</div>
-                                                                <div className="mt-1 text-[11px] text-slate-500">{maxOverall}</div>
-                                                            </div>
-                                                            <div className="absolute left-[73%] top-1/2 -translate-y-1/2 text-right">
-                                                                <div className="mt-1 text-[11px] text-slate-500 absolute top-[21%] left-[-20px]" >{maxOffFill}</div>
-                                                                <div className="text-sm font-semibold text-[#2a8090]" style={{ writingMode: "vertical-rl" }}>オフ／フィル</div>
-                                                            </div>
-                                                            <div className="absolute bottom-1 left-1/2 -translate-x-1/2 text-center">
-                                                                <div className="mt-1 text-[11px] text-slate-500" >{maxFile}</div>
-                                                                <div className="text-sm font-semibold text-[#2a8090]">ファイル</div>
-                                                            </div>
-                                                            <div className="absolute left-1/4 top-1/2 -translate-y-1/2 text-left">
-                                                                <div className="mt-1 text-[11px] text-slate-500 absolute left-6 top-1/3 text-left">
-                                                                    {maxPrep}
-                                                                </div>
-                                                                <div className="text-sm font-semibold text-[#2a8090]" style={{ writingMode: "vertical-rl" }}>
-                                                                    プレパレーション
-                                                                </div>
-                                                            </div>
-                                                            {/* <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[12%]">328</div>
-                                                            <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[21%]">246</div>
-                                                            <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[30%]">164</div>
-                                                            <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[39%]">82</div>
-                                                            <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[57%]">32</div>
-                                                            <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[66%]">64</div>
-                                                            <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[75%]">96</div>
-                                                            <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[84%]">128</div> */}
-
-                                                            {/* Left (time) marks along center line */}
-                                                            {/* <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[32%]">168</div>
-                                                            <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[36%]">126</div>
-                                                            <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[40%]">84</div>
-                                                            <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[45%]">42</div> */}
-
-                                                            {/* <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[54%]">8</div>
-                                                            <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[58%]">16</div>
-                                                            <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[62%]">24</div>
-                                                            <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[66%]">32</div> */}
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                            </>
-                                        );
-                                    })()}
+                                    <CareRadar
+                                        master={CARE_EVALUATION_MASTER}
+                                        careScoreCurrentData={careScoreCurrentData}
+                                        careScorePreviousData={careScorePreviousData}
+                                        careRadarAverageData={careRadarAverageData}
+                                        careRadarPreviousData={careRadarPreviousData}
+                                        careRadarCurrentData={careRadarCurrentData}
+                                        avgData={avgData as JsonMap | undefined}
+                                    />
                                 </Card>
                                 <div id="pdf-care-rank-standard" className="mt-4">
                                     <EvaluationRankStandardTable />
@@ -3332,193 +3059,15 @@ export default function CustomerDetail() {
                                     })()}
                                 </Card>
                                 <Card className="mt-4">
-                                    {(() => {
-
-                                        type BucketTotals = { max: number; prev: number; cur: number };
-                                        const ensureMap = (m: any): Record<string, any> => {
-                                            if (!m) return {};
-                                            if (typeof m === "string") {
-                                                try { const p = JSON.parse(m); return p && typeof p === "object" ? p : {}; } catch { return {}; }
-                                            }
-                                            return typeof m === "object" ? (m as Record<string, any>) : {};
-                                        };
-                                        const normalizeKey = (s: string) =>
-                                            (typeof s === "string" ? s : String(s))
-                                                .replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xFEE0))
-                                                .replace(/[‐‑–—−ーｰ－]/g, "-")
-                                                .replace(/[［］【】\[\]\(\)\s\u3000]/g, "");
-                                        const toNumber = (v: any) => {
-                                            const n = Number(String(v ?? "").replace(/[^\d.-]/g, ""));
-                                            return Number.isFinite(n) ? n : 0;
-                                        };
-                                        const getScore = (map: Record<string, any> | undefined, code: string, label: string) => {
-                                            if (!map) return 0;
-                                            const nCode = normalizeKey(code || "");
-                                            const nCodeA = normalizeKey(`[ワンカラ] ${code}`);
-                                            const nCodeB = normalizeKey(`ワンカラ${code}`);
-                                            const nLabel = normalizeKey(label || "");
-                                            for (const [rawKey, rawVal] of Object.entries(map)) {
-                                                const nk = normalizeKey(rawKey);
-                                                if (nCode && nk.includes(nCode)) return toNumber(rawVal);
-                                                if (nCodeA && nk.includes(nCodeA)) return toNumber(rawVal);
-                                                if (nCodeB && nk.includes(nCodeB)) return toNumber(rawVal);
-                                                if (nLabel && nk.includes(nLabel)) return toNumber(rawVal);
-                                            }
-                                            return 0;
-                                        };
-                                        const currentMap = ensureMap(oneColorScoreCurrentData);
-                                        const previousMap = ensureMap(oneColorScorePreviousData);
-                                        const avgMap = ensureMap(avgData); // national average if provided
-                                        const buckets: Record<AxisKeyOC, BucketTotals> = {
-                                            "ベース": { max: 0, prev: 0, cur: 0 },
-                                            "カラー": { max: 0, prev: 0, cur: 0 },
-                                            "トップ": { max: 0, prev: 0, cur: 0 },
-                                        };
-                                        const OC_MASTER = ONE_COLOR_MASTER;
-                                        (OC_MASTER || []).forEach((cat: any) => {
-                                            const axis: AxisKeyOC = (cat?.name as AxisKeyOC) || "ベース";
-                                            if (!buckets[axis]) return;
-                                            (cat.items || []).forEach((it: any) => {
-                                                (it.checkpoints || []).forEach((cp: any) => {
-                                                    const pts = cp.points ?? 0;
-                                                    buckets[axis].max += pts;
-                                                    const prev = getScore(previousMap, cp.code, cp.label);
-                                                    const cur = getScore(currentMap, cp.code, cp.label);
-                                                    buckets[axis].prev += Math.max(0, Math.min(pts, prev));
-                                                    buckets[axis].cur += Math.max(0, Math.min(pts, cur));
-                                                });
-                                            });
-                                        });
-                                        // Axis-specific caps
-                                        const maxBase = buckets["ベース"].max;
-                                        const maxColor = buckets["カラー"].max;
-                                        const maxTop = buckets["トップ"].max;
-                                        const maxOverall = maxBase + maxColor + maxTop; // 610 expected
-                                        // Build national totals: prefer avgMap axis values; fallback to previous axis totals
-                                        const pick = (map: Record<string, any>, keys: string[]) => {
-                                            for (const [k, v] of Object.entries(map || {})) {
-                                                if (keys.some((s) => String(k).includes(s))) return toNumber(v);
-                                            }
-                                            return 0;
-                                        };
-                                        const nationalBuckets = {
-                                            "ベース": pick(avgMap, ["ベース", "base"]) || buckets["ベース"].prev,
-                                            "カラー": pick(avgMap, ["カラー", "color"]) || buckets["カラー"].prev,
-                                            "トップ": pick(avgMap, ["トップ", "top"]) || buckets["トップ"].prev,
-                                        } as Record<AxisKeyOC, number>;
-                                        const nationalOverall = nationalBuckets["ベース"] + nationalBuckets["カラー"] + nationalBuckets["トップ"];
-                                        const previousOverall = buckets["ベース"].prev + buckets["カラー"].prev + buckets["トップ"].prev;
-                                        const currentOverall = buckets["ベース"].cur + buckets["カラー"].cur + buckets["トップ"].cur;
-                                        const normalize = (v: number, max: number) => (max ? Math.max(0, Math.min(100, (v / max) * 100)) : 0);
-                                        const rows = [
-                                            { axis: "ワンカラー総合", national: normalize(nationalOverall, maxOverall), previous: normalize(previousOverall, maxOverall), current: normalize(currentOverall, maxOverall), nationalRaw: nationalOverall, previousRaw: previousOverall, currentRaw: currentOverall, max: maxOverall },
-                                            { axis: "ベース", national: normalize(nationalBuckets["ベース"], maxBase), previous: normalize(buckets["ベース"].prev, maxBase), current: normalize(buckets["ベース"].cur, maxBase), nationalRaw: nationalBuckets["ベース"], previousRaw: buckets["ベース"].prev, currentRaw: buckets["ベース"].cur, max: maxBase },
-                                            { axis: "カラー", national: normalize(nationalBuckets["カラー"], maxColor), previous: normalize(buckets["カラー"].prev, maxColor), current: normalize(buckets["カラー"].cur, maxColor), nationalRaw: nationalBuckets["カラー"], previousRaw: buckets["カラー"].prev, currentRaw: buckets["カラー"].cur, max: maxColor },
-                                            { axis: "トップ", national: normalize(nationalBuckets["トップ"], maxTop), previous: normalize(buckets["トップ"].prev, maxTop), current: normalize(buckets["トップ"].cur, maxTop), nationalRaw: nationalBuckets["トップ"], previousRaw: buckets["トップ"].prev, currentRaw: buckets["トップ"].cur, max: maxTop },
-                                        ];
-                                        const legendItems = [
-                                            { label: "全国平均", color: "#64CBD3" },
-                                            { label: "前回", color: "#4075B5" },
-                                            { label: "今回", color: "#F15C4B" },
-                                        ];
-                                        const fmt1 = (n: number | undefined | null) =>
-                                            typeof n === "number" ? n.toLocaleString(undefined, { maximumFractionDigits: 1 }) : "";
-                                        const labelPos = (axis: string, cx: number, cy: number) => {
-                                            if (axis === "ワンカラー総合") return { x: cx, y: cy - 10, anchor: "middle" as const };
-                                            if (axis === "ベース") return { x: cx + 10, y: cy + 4, anchor: "start" as const };
-                                            if (axis === "カラー") return { x: cx, y: cy + 14, anchor: "middle" as const };
-                                            if (axis === "トップ") return { x: cx - 10, y: cy + 4, anchor: "end" as const };
-                                            return { x: cx, y: cy - 10, anchor: "middle" as const };
-                                        };
-                                        const Dot = (color: string, keyName: "nationalRaw" | "previousRaw" | "currentRaw") =>
-                                            (props: any) => {
-                                                const { cx, cy, payload } = props;
-                                                if (typeof cx !== "number" || typeof cy !== "number") return null;
-                                                const raw = payload?.[keyName];
-                                                const { x, y, anchor } = labelPos(payload?.axis, cx, cy);
-                                                return (
-                                                    <g>
-                                                        <circle cx={cx} cy={cy} r={4.5} fill={color} stroke="#ffffff" strokeWidth={1.8} />
-                                                        <text x={x} y={y} textAnchor={anchor} fontSize={12} fontWeight={600} fill={color === "#64CBD3" ? "#2a8090" : color}>
-                                                            {fmt1(raw)}
-                                                        </text>
-                                                    </g>
-                                                );
-                                            };
-                                        const NationalDot = Dot("#64CBD3", "nationalRaw");
-                                        const PreviousDot = Dot("#4075B5", "previousRaw");
-                                        const CurrentDot = Dot("#F15C4B", "currentRaw");
-                                        return (
-                                            <div id="pdf-onecolor-radar" className="relative h-[600px] overflow-hidden rounded-2xl border border-[#e8e9f4] bg-white">
-                                                <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#e87674] via-white to-[#54b4bd]" />
-                                                <div className="flex flex-col gap-2 px-6 pt-6 sm:flex-row sm:items-center sm:justify-between">
-                                                    <div className="text-sm font-semibold text-slate-700">グラフの名前</div>
-                                                    <div className="flex flex-wrap items-center gap-4 text-xs font-medium text-slate-600">
-                                                        {legendItems.map((item) => (
-                                                            <div key={item.label} className="flex items-center gap-2">
-                                                                <span
-                                                                    className="inline-flex h-2.5 w-8 rounded-full"
-                                                                    style={{ backgroundColor: item.color }}
-                                                                />
-                                                                <span>{item.label}</span>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                                <div className="relative h-[540px] px-6 pb-20 pt-6">
-                                                    <ResponsiveContainer width="100%" height="100%">
-                                                        <RadarChart data={rows} startAngle={90} endAngle={-270} margin={{ top: 24, right: 24, bottom: 24, left: 24 }}>
-                                                            <PolarGrid gridType="polygon" radialLines polarRadius={[45, 90, 135, 180, 225]} stroke="#e6e9f5" />
-                                                            <PolarAngleAxis dataKey="axis" tick={false} />
-                                                            <PolarRadiusAxis domain={[0, 100]} tickCount={5} axisLine={false} tick={false} />
-                                                            <Radar name="全国平均" dataKey="national" stroke="#64CBD3" strokeWidth={2} fill="#64CBD3" fillOpacity={0.18} dot={<NationalDot />} />
-                                                            <Radar name="前回" dataKey="previous" stroke="#4075B5" strokeWidth={2} fill="#4075B5" fillOpacity={0.15} dot={<PreviousDot />} />
-                                                            <Radar name="今回" dataKey="current" stroke="#F15C4B" strokeWidth={2} fill="#F15C4B" fillOpacity={0.18} dot={<CurrentDot />} />
-                                                        </RadarChart>
-                                                    </ResponsiveContainer>
-                                                    <div className="pointer-events-none absolute inset-0">
-                                                        <div className="absolute top-[-3%] left-1/2 -translate-x-1/2 text-center">
-                                                            <div className="text-sm font-semibold text-[#2a8090]">ワンカラー総合</div>
-                                                            {/* <div className="text-sm font-semibold text-[#2a8090]">610</div> */}
-                                                        </div>
-                                                        <div className="absolute left-[72%] top-[43%] -translate-y-1/2 text-right">
-                                                            <div className="text-sm font-semibold text-[#2a8090]" style={{ writingMode: "vertical-rl" }}>ベース</div>
-                                                        </div>
-                                                        <div className="absolute bottom-[6%] left-1/2 -translate-x-1/2 text-center">
-                                                            {/* <div className="text-sm font-semibold text-[#2a8090]">210</div> */}
-                                                            <div className="text-sm font-semibold text-[#2a8090]">カラー</div>
-                                                        </div>
-                                                        <div className="absolute left-[26%] top-[43%] -translate-y-1/2 text-left">
-                                                            {/* <div className="text-sm left-[2%]font-semibold text-[#2a8090]">140</div> */}
-                                                            <div className="text-sm font-semibold text-[#2a8090]" style={{ writingMode: "vertical-rl" }}>トップ</div>
-                                                        </div>
-                                                        {/* <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[4%]">610</div>
-                                                        <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[12%]">488</div>
-                                                        <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[20%]">366</div>
-                                                        <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[30%]">244</div>
-                                                        <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[39%]">122</div>
-                                                        <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[55%]">42</div>
-                                                        <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[63%]">84</div>
-                                                        <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[71%]">126</div>
-                                                        <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[79%]">168</div>
-                                                        <div className="absolute left-1/2 -translate-x-1/2 text-[10px] text-gray-500 top-[88%]">210</div>
-                                                        <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[28%]">140</div>
-                                                        <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[32%]">112</div>
-                                                        <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[36%]">84</div>
-                                                        <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[40%]">56</div>
-                                                        <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[45%]">28</div>
-                                                        <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[49%]">0</div>
-                                                        <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[54%]">52</div>
-                                                        <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[58%]">104</div>
-                                                        <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[62%]">156</div>
-                                                        <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[66%]">208</div>
-                                                        <div className="absolute top-[48.5%] -translate-y-1/2 text-[10px] text-gray-500 left-[70%]">260</div> */}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        );
-
-                                    })()}
+                                    <OneColorRadar
+                                        master={ONE_COLOR_MASTER}
+                                        oneColorScoreCurrentData={oneColorScoreCurrentData}
+                                        oneColorScorePreviousData={oneColorScorePreviousData}
+                                        avgData={avgData}
+                                        oneColorRadarCurrentData={oneColorRadarCurrentData}
+                                        oneColorRadarPreviousData={oneColorRadarPreviousData}
+                                        oneColorRadarAverageData={avgData as JsonMap | undefined}
+                                    />
                                 </Card>
                                 <div id="pdf-onecolor-rank-standard" className="mt-4">
                                     <EvaluationRankStandardTable />
@@ -3630,6 +3179,8 @@ export default function CustomerDetail() {
                                         averageDetailData={timeComparisonAverage as Record<string, any> | undefined}
                                         previousDetailData={timeBothHandPreviousData as Record<string, any> | undefined}
                                         currentDetailData={timeBothHandCurrentData as Record<string, any> | undefined}
+                                        timeRadarChartCurrent={timeRadarCurrentData}
+                                        timeRadarChartPrevious={timeRadarPreviousData}
                                     />
                                 </Card>
                                 <div className="mt-4 space-y-4">
